@@ -1,0 +1,115 @@
+manufacturer: Weishaupt
+model: Modbus TCP
+aliases:
+  - wh_wp
+
+exports:
+  climates:
+    - name: hotwater
+      actual_temp: hotwater_temp
+      target_temp_register: hotwater_temp_target
+      max_temp: 50
+      min_temp: 15
+      temp_step: 1
+
+registers:
+  # System registers
+  - name: temperature_outside
+    input_type: Input
+    register: 30001
+    length: 2
+    format: Int16
+    scaler: 0.1
+    unit_of_measurement: °C
+    device_class: temperature
+    state_class: measurement
+  
+  # Register 30002 is unknown to us
+  
+  - name: error_code
+    input_type: Input
+    register: 30003
+    length: 2
+    format: Int16
+    scaler: 1.0
+    state_class: measurement
+
+  - name: warning_code
+    input_type: Input
+    register: 30004
+    length: 2
+    format: Int16
+    scaler: 1.0
+    state_class: measurement
+
+  - name: fault
+    input_type: Input
+    register: 30005
+    length: 2
+    format: Int16
+    scaler: 1.0
+    map_as: Boolean
+    platform: BinarySensor
+    device_class: problem
+    mappings:
+      - data: "0.0"
+        mapping: true
+      - data: "1.0"
+        mapping: false
+
+  - name: current_mode
+    input_type: Input
+    register: 30006
+    length: 2
+    format: Int16
+    scaler: 1.0
+    state_class: measurement
+    mapping:
+      - "8.0": "Unfreeze"
+      - "15.0": "Standby"
+      - "19.0": "Heating"
+      - "20.0": "Hot water processing"
+      - "23.0": "Cooling"
+      - "25.0": "Sommer mode"
+      - "_": "Unknown: "
+
+  - name: operational_type
+    input_type: Holding
+    register: 40001
+    length: 2
+    format: Int16
+    scaler: 1.0
+    state_class: measurement
+
+# Hot water
+  - name: hotwater_temp_target
+    input_type: Input
+    register: 32101
+    length: 2
+    format: Int16
+    scaler: 0.1
+    device_class: temperature
+    unit_of_measurement: °C
+    state_class: measurement
+
+  - name: hotwater_temp
+    input_type: Input
+    register: 32102
+    length: 2
+    format: Int16
+    device_class: temperature
+    unit_of_measurement: °C
+    state_class: measurement
+  - name: "hotwater_push_mode"
+    input_type: Holding
+    register: 42102
+    length: 2
+    format: Int16
+    scaler: 1.0
+
+actions:
+  - name: operational_type
+    register: 40001
+    length: 2
+    format: Int16
+    options:

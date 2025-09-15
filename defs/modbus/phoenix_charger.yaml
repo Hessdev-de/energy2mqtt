@@ -1,0 +1,9 @@
+manufacturer: Phoenix Contact
+model: EV-CC-0000000
+registers:
+  - name: charge_enabled
+    input_type: Holding
+    register: 436
+    length: 2
+    format: Int16
+    scaler: 1.0
