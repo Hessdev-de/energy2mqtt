@@ -1,0 +1,40 @@
+# The sensor joins the network using OTAA
+# The sensor only transmits the current co2 level
+
+manufacturer: Herholdt Controls
+model: ECS LoRaWAN
+
+aliases:
+  - !DevEUI ^0004A30B([0-9A-F]){8}$
+
+data_fields:
+  - name: energy_active_import_t1
+    map_key: positive_energy_t1
+    friendly_name: Positive Energy Tariff 1
+    unit_of_measurement: kWh
+    device_class: energy
+    state_class: total_increasing
+  - name: energy_active_import_t2
+    map_key: positive_energy_t2
+    friendly_name: Positive Energy Tariff 2
+    unit_of_measurement: kWh
+    device_class: energy
+    state_class: total_increasing
+  - name: number_of_phases
+    map_key: number_phases
+    friendly_name: Number of phases
+  - name: energy_reactive_import_t1
+    map_key: positive_reactive_energy_t1
+    friendly_name: Reactive Energy Tariff 1
+    unit_of_measurement: kvarh
+    device_class: reactive_energy
+    state_class: total_increasing
+  - name: energy_reactive_import_t2
+    map_key: positive_reactive_energy_t2
+    friendly_name: Reactive Energy Tariff 2
+    unit_of_measurement: kvarh
+    device_class: reactive_energy
+    state_class: total_increasing
+
+options:
+  merge_old_data: True

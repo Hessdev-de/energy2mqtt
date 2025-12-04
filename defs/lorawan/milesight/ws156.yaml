@@ -1,0 +1,78 @@
+manufacturer: Milesight
+model: WS156
+
+# TODO: Only one sensor by now!
+aliases:
+  - !ProductId "milesight.ws156"
+
+data_fields:
+  - name: battery
+    friendly_name: Battery
+    unit_of_measurement: "%"
+    device_class: battery
+  - name: button_1
+    friendly_name: Button 1
+    platform: device_automation
+    e2m_persist: False
+    triggers:
+      - subtype: button_short_press
+        payload: short
+      - subtype: button_long_press
+        payload: long
+      - subtype: button_double_press
+        payload: double
+  - name: button_2
+    friendly_name: Button 2
+    platform: device_automation
+    e2m_persist: False
+    triggers:
+      - subtype: button_short_press
+        payload: short
+      - subtype: button_long_press
+        payload: long
+      - subtype: button_double_press
+        payload: double
+  - name: button_3
+    friendly_name: Button 3
+    platform: device_automation
+    e2m_persist: False
+    triggers:
+      - subtype: button_short_press
+        payload: short
+      - subtype: button_long_press
+        payload: long
+      - subtype: button_double_press
+        payload: double
+  - name: button_4
+    friendly_name: Button 4
+    platform: device_automation
+    e2m_persist: False
+    triggers:
+      - subtype: button_short_press
+        payload: short
+      - subtype: button_long_press
+        payload: long
+      - subtype: button_double_press
+        payload: double
+  - name: button_5
+    friendly_name: Button 5
+    platform: device_automation
+    e2m_persist: False
+    triggers:
+      - subtype: button_short_press
+        payload: short
+      - subtype: button_long_press
+        payload: long
+      - subtype: button_double_press
+        payload: double
+  - name: button_6
+    friendly_name: Button 6
+    platform: device_automation
+    e2m_persist: False
+    triggers:
+      - subtype: button_short_press
+        payload: short
+      - subtype: button_long_press
+        payload: long
+      - subtype: button_double_press
+        payload: double

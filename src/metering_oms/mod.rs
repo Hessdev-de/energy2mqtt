@@ -39,8 +39,8 @@ impl OmsManager {
         let _ = self.sender.send(register).await;
 
         info!("Starting OMS waiting for messages");
-        while let Some(c) = receiver.recv().await {
-            let dec =  hex::decode(c);
+        while let Some((_topic, message)) = receiver.recv().await {
+            let dec =  hex::decode(message);
             if dec.is_err() {
                 error!("Non hex string received");
                 continue;
@@ -89,7 +89,17 @@ pub enum OmsParseError {
 }*/
 
 fn parse_oms_telegram(telegram: &Vec<u8>, with_crc: bool) -> Result<MeteringData, OmsParseError> {
-    
+    parse_oms_telegram_internal(telegram, with_crc, None)
+}
+
+/// Internal parsing function that accepts an optional config for testing
+/// If config is None, it will be looked up from the global config
+fn parse_oms_telegram_internal(
+    telegram: &Vec<u8>,
+    with_crc: bool,
+    test_config: Option<crate::config::OmsConfig>
+) -> Result<MeteringData, OmsParseError> {
+
     /* Some definitions direction slave to master only */
     let tpl_no_header_ids : Vec<u8> = vec![0x66, 0x70, 0x71];
     /* Annex D D.2 */
@@ -97,7 +107,7 @@ fn parse_oms_telegram(telegram: &Vec<u8>, with_crc: bool) -> Result<MeteringData
     /* Annex D D.2 */
     let tpl_long_header_ids: Vec<u8> = vec![0x68, 0x6F, 0x72, 0x75, 0x7C, 0x7E, 0x9F, 0xC2, 0xC5];
 
-    /* 
+    /*
         Some OMS hardware removes the CRC block during reception other transport it to the backend.
     */
     let telegram = match with_crc {
@@ -135,7 +145,7 @@ fn parse_oms_telegram(telegram: &Vec<u8>, with_crc: bool) -> Result<MeteringData
         debug!("SND_NR message found");
         protocol_map.insert("c_field".to_string(), serde_json::Value::from("SND_NR"));
     }
-    
+
     let manfucturer = utils::get_manufacturer(&telegram);
     protocol_map.insert("manufacturer".to_string(), manfucturer.clone().into());
     let ident_no = utils::get_ident_no(&telegram);
@@ -154,10 +164,14 @@ fn parse_oms_telegram(telegram: &Vec<u8>, with_crc: bool) -> Result<MeteringData
     */
     protocol_map.insert("din_addr_sender".to_string(), din_addr.clone().into());
     protocol_map.insert("din_addr_meter".to_string(), din_addr.clone().into());
-    
-    let config = match utils::get_meter_config(&din_addr) {
+
+    /* Use test config if provided, otherwise look up from global config */
+    let config = match test_config {
         Some(c) => c,
-        None => { return Err(OmsParseError::SensorNotConfigured); },
+        None => match utils::get_meter_config(&din_addr) {
+            Some(c) => c,
+            None => { return Err(OmsParseError::SensorNotConfigured); },
+        },
     };
 
     debug!("DLL (DataLink layer) correct, trying TPL (TransPort Layer)");
@@ -240,19 +254,17 @@ fn parse_oms_telegram(telegram: &Vec<u8>, with_crc: bool) -> Result<MeteringData
 #[cfg(test)]
 mod oms_parse_tests {
     use super::*;
+    use crate::config::OmsConfig;
 
     #[test]
-    fn get_mr() {
-
-        /* Example from 
+    fn test_crc_verification() {
+        /* Example from
             Open Metering System Specification Vol. 2 – Annex N
             RELEASE E (2023-12)
             N.2.1. wM-Bus Meter with Security profile A
         */
 
-        
         /* To use with MQTT: 2E44931578563412330333637A2A0020255923C95AAA26D1B2E7493BC2AD013EC4A6F6D3529B520EDFF0EA6DEFC955B29D6D69EBF3EC8A */
-        // Witout CRC: 2E4493157856341233037A2A0020255923C95AAA26D1B2E7493B013EC4A6F6D3529B520EDFF0EA6DEFC99D6D69EBF3
         let data: Vec<u8> = vec![
             0x2E, /* L Field        0   */
             0x44, /* C Field        1   */
@@ -312,41 +324,171 @@ mod oms_parse_tests {
             0xF3, /* Fill Byte due to AES */
             0xEC, /* CRC */
             0x8A, /* CRC */
-            ];
-
-
-        let test = utils::verifiy_crc(&data);
-        assert_eq!(test.is_err(), false);
-        let new_data = test.unwrap();
-        assert_eq!(data.len() - 8, new_data.len());
-
-        assert_eq!(utils::get_manufacturer(&data), "ELS");
-        assert_eq!(utils::get_ident_no(&data), "12345678");
-
-
-        let _key: Vec<u8> = vec![
-            0x01,
-            0x02,
-            0x03,
-            0x04,
-            0x05,
-            0x06,
-            0x07,
-            0x08,
-            0x09,
-            0x0A,
-            0x0B,
-            0x0C,
-            0x0D,
-            0x0E,
-            0x0F,
-            0x11
         ];
 
-        let result = parse_oms_telegram(&data, true);
-        assert_eq!(result.is_err(), false);
-        let result = result.unwrap();
-        assert_eq!(result.meter_name, "3ELS3312345678");
+        let test = utils::verifiy_crc(&data);
+        assert!(test.is_ok(), "CRC verification should succeed");
+        let new_data = test.unwrap();
+        assert_eq!(data.len() - 8, new_data.len(), "CRC bytes should be removed");
+    }
 
+    #[test]
+    fn test_manufacturer_extraction() {
+        let data: Vec<u8> = vec![
+            0x2E, 0x44,
+            0x93, /* M Field LSB */
+            0x15, /* M Field MSB */
+            0x78, 0x56, 0x34, 0x12, 0x33, 0x03,
+        ];
+
+        assert_eq!(utils::get_manufacturer(&data), "ELS");
+    }
+
+    #[test]
+    fn test_ident_no_extraction() {
+        let data: Vec<u8> = vec![
+            0x2E, 0x44, 0x93, 0x15,
+            0x78, /* A Field - ident byte 0 */
+            0x56, /* A Field - ident byte 1 */
+            0x34, /* A Field - ident byte 2 */
+            0x12, /* A Field - ident byte 3 */
+            0x33, 0x03,
+        ];
+
+        assert_eq!(utils::get_ident_no(&data), "12345678");
+    }
+
+    #[test]
+    fn test_parse_oms_telegram_with_config() {
+        /* Example from
+            Open Metering System Specification Vol. 2 – Annex N
+            RELEASE E (2023-12)
+            N.2.1. wM-Bus Meter with Security profile A
+        */
+
+        let data: Vec<u8> = vec![
+            0x2E, /* L Field        0   */
+            0x44, /* C Field        1   */
+            0x93, /* M Field        2   */
+            0x15, /* M Field        3   */
+            0x78, /* A Field        4   */
+            0x56, /* A Field        5   */
+            0x34, /* A Field        6   */
+            0x12, /* A Field        7   */
+            0x33, /* A Field        8   */
+            0x03, /* A Field        9   */
+            0x33, /* CRC */
+            0x63, /* CRC */
+
+            0x7A, /* CI Field       10 */
+            0x2A, /* Access Number  11  */
+            0x00, /* Status         12  */
+            0x20, /* Config Field   13  */
+            0x25, /* Config Field   14  */
+            0x59, /* AES-Verify 0x2F */
+            0x23, /* AES-Verify 0x2F */
+            0xC9, /* DIF */
+            0x5A, /* VIF */
+            0xAA, /* Value LSB */
+            0x26, /* Value */
+            0xD1, /* Value */
+            0xB2, /* Value MSB*/
+            0xE7, /* DIF */
+            0x49, /* VIF */
+            0x3B, /* Value LSB */
+            0xC2, /* CRC */
+            0xAD, /* CRC */
+
+            0x01, /* Value */
+            0x3E, /* VALUE */
+            0xC4, /* Value MSB */
+            0xA6, /* DIF */
+            0xF6, /* VIF */
+            0xD3, /* VIFE */
+            0x52, /* Value LSB */
+            0x9B, /* Value MSB */
+            0x52, /* Fill Byte due to AES */
+            0x0E, /* Fill Byte due to AES */
+            0xDF, /* Fill Byte due to AES */
+            0xF0, /* Fill Byte due to AES */
+            0xEA, /* Fill Byte due to AES */
+            0x6D, /* Fill Byte due to AES */
+            0xEF, /* Fill Byte due to AES */
+            0xC9, /* Fill Byte due to AES */
+            0x55, /* CRC */
+            0xB2, /* CRC */
+
+            0x9D, /* Fill Byte due to AES */
+            0x6D, /* Fill Byte due to AES */
+            0x69, /* Fill Byte due to AES */
+            0xEB, /* Fill Byte due to AES */
+            0xF3, /* Fill Byte due to AES */
+            0xEC, /* CRC */
+            0x8A, /* CRC */
+        ];
+
+        /* Key from OMS spec example */
+        let key = "0102030405060708090A0B0C0D0E0F11";
+
+        /* Create test config - din_addr format is: {device_type}{manufacturer}{version}{ident_no}
+           device_type = 0x03 = "3", manufacturer = "ELS", version = 0x33 = "33", ident_no = "12345678"
+           So din_addr = "3ELS3312345678" */
+        let test_config = OmsConfig {
+            name: "Test OMS Meter".to_string(),
+            id: "3ELS3312345678".to_string(),
+            key: key.to_string(),
+        };
+
+        let result = parse_oms_telegram_internal(&data, true, Some(test_config));
+        assert!(result.is_ok(), "Parsing should succeed with valid config: {:?}", result.err());
+
+        let result = result.unwrap();
+        assert_eq!(result.meter_name, "Test OMS Meter");
+    }
+
+    #[test]
+    fn test_parse_oms_telegram_without_config_fails() {
+        /* Valid telegram without CRC (already stripped) for testing config lookup failure
+           L Field = 0x14 = 20, which is the length of the data minus 1 (L field itself not counted) */
+        let data: Vec<u8> = vec![
+            0x14, /* L Field = 20 bytes following */
+            0x44, /* C Field - SND_NR */
+            0x93, /* M Field */
+            0x15, /* M Field */
+            0x78, /* A Field */
+            0x56, /* A Field */
+            0x34, /* A Field */
+            0x12, /* A Field */
+            0x33, /* Version */
+            0x03, /* Device Type */
+            0x7A, /* CI Field - short header */
+            0x2A, /* Access Number */
+            0x00, /* Status */
+            0x20, /* Config Field */
+            0x25, /* Config Field */
+            0x00, /* Padding */
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+        ];
+
+        /* Without test config, should fail with SensorNotConfigured */
+        let result = parse_oms_telegram_internal(&data, false, None);
+        assert!(result.is_err(), "Should fail without config");
+        match result {
+            Err(OmsParseError::SensorNotConfigured) => (), // Expected
+            Err(e) => panic!("Expected SensorNotConfigured, got {:?}", e),
+            Ok(_) => panic!("Expected error, got Ok"),
+        }
+    }
+
+    #[test]
+    fn test_device_medium() {
+        assert_eq!(utils::get_device_medium(&"2".to_string()), "Electricity");
+        assert_eq!(utils::get_device_medium(&"3".to_string()), "Gas");
+        assert_eq!(utils::get_device_medium(&"7".to_string()), "Water (cold)");
+        assert_eq!(utils::get_device_medium(&"99".to_string()), "unknown");
     }
 }

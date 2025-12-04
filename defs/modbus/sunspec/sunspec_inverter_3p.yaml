@@ -1,0 +1,424 @@
+# SunSpec Three-Phase Inverter (Model 103)
+# Standard SunSpec Modbus register map for three-phase solar inverters
+# Base address: 40000 (0-based Modbus addressing)
+#
+# Compatible devices: SolarEdge, SMA, Fronius, Huawei, Kostal, and other
+# SunSpec-compliant three-phase inverters
+#
+# Note: Scale factors (SunSSF) must be read before values that reference them.
+# This file orders registers to ensure scale factors are read first.
+
+manufacturer: SunSpec
+model: Inverter 3-Phase (Model 103)
+aliases:
+  - sunspec_103
+  - sunspec_3p
+  - solaredge_3p
+  - sma_3p
+  - fronius_3p
+
+registers:
+  # ============================================
+  # Model 1: Common Block (starts at 40002)
+  # ============================================
+  - name: manufacturer
+    input_type: Holding
+    register: 40004
+    length: 16
+    format: String
+    unit_of_measurement: "NONE"
+    device_class: "NONE"
+    state_class: "NONE"
+
+  - name: model
+    input_type: Holding
+    register: 40020
+    length: 16
+    format: String
+    unit_of_measurement: "NONE"
+    device_class: "NONE"
+    state_class: "NONE"
+
+  - name: version
+    input_type: Holding
+    register: 40044
+    length: 8
+    format: String
+    unit_of_measurement: "NONE"
+    device_class: "NONE"
+    state_class: "NONE"
+
+  - name: serial_number
+    input_type: Holding
+    register: 40052
+    length: 16
+    format: String
+    unit_of_measurement: "NONE"
+    device_class: "NONE"
+    state_class: "NONE"
+
+  # ============================================
+  # Model 103: Three-Phase Inverter (starts at 40070)
+  # Scale factors MUST be read first
+  # ============================================
+
+  # --- Scale Factors (read first) ---
+  - name: A_SF
+    input_type: Holding
+    register: 40076
+    length: 1
+    format: SunSSF
+    unit_of_measurement: "NONE"
+    device_class: "NONE"
+    state_class: "NONE"
+
+  - name: V_SF
+    input_type: Holding
+    register: 40083
+    length: 1
+    format: SunSSF
+    unit_of_measurement: "NONE"
+    device_class: "NONE"
+    state_class: "NONE"
+
+  - name: W_SF
+    input_type: Holding
+    register: 40085
+    length: 1
+    format: SunSSF
+    unit_of_measurement: "NONE"
+    device_class: "NONE"
+    state_class: "NONE"
+
+  - name: Hz_SF
+    input_type: Holding
+    register: 40087
+    length: 1
+    format: SunSSF
+    unit_of_measurement: "NONE"
+    device_class: "NONE"
+    state_class: "NONE"
+
+  - name: VA_SF
+    input_type: Holding
+    register: 40089
+    length: 1
+    format: SunSSF
+    unit_of_measurement: "NONE"
+    device_class: "NONE"
+    state_class: "NONE"
+
+  - name: VAr_SF
+    input_type: Holding
+    register: 40091
+    length: 1
+    format: SunSSF
+    unit_of_measurement: "NONE"
+    device_class: "NONE"
+    state_class: "NONE"
+
+  - name: PF_SF
+    input_type: Holding
+    register: 40093
+    length: 1
+    format: SunSSF
+    unit_of_measurement: "NONE"
+    device_class: "NONE"
+    state_class: "NONE"
+
+  - name: WH_SF
+    input_type: Holding
+    register: 40096
+    length: 1
+    format: SunSSF
+    unit_of_measurement: "NONE"
+    device_class: "NONE"
+    state_class: "NONE"
+
+  - name: DCA_SF
+    input_type: Holding
+    register: 40098
+    length: 1
+    format: SunSSF
+    unit_of_measurement: "NONE"
+    device_class: "NONE"
+    state_class: "NONE"
+
+  - name: DCV_SF
+    input_type: Holding
+    register: 40100
+    length: 1
+    format: SunSSF
+    unit_of_measurement: "NONE"
+    device_class: "NONE"
+    state_class: "NONE"
+
+  - name: DCW_SF
+    input_type: Holding
+    register: 40102
+    length: 1
+    format: SunSSF
+    unit_of_measurement: "NONE"
+    device_class: "NONE"
+    state_class: "NONE"
+
+  - name: Tmp_SF
+    input_type: Holding
+    register: 40107
+    length: 1
+    format: SunSSF
+    unit_of_measurement: "NONE"
+    device_class: "NONE"
+    state_class: "NONE"
+
+  # --- AC Current ---
+  - name: ac_current
+    input_type: Holding
+    register: 40072
+    length: 1
+    format: UInt16
+    scale_factor: A_SF
+    unit_of_measurement: A
+    device_class: current
+    state_class: measurement
+
+  - name: ac_current_l1
+    input_type: Holding
+    register: 40073
+    length: 1
+    format: UInt16
+    scale_factor: A_SF
+    unit_of_measurement: A
+    device_class: current
+    state_class: measurement
+
+  - name: ac_current_l2
+    input_type: Holding
+    register: 40074
+    length: 1
+    format: UInt16
+    scale_factor: A_SF
+    unit_of_measurement: A
+    device_class: current
+    state_class: measurement
+
+  - name: ac_current_l3
+    input_type: Holding
+    register: 40075
+    length: 1
+    format: UInt16
+    scale_factor: A_SF
+    unit_of_measurement: A
+    device_class: current
+    state_class: measurement
+
+  # --- AC Voltage (Line-to-Line) ---
+  - name: ac_voltage_l1l2
+    input_type: Holding
+    register: 40077
+    length: 1
+    format: UInt16
+    scale_factor: V_SF
+    unit_of_measurement: V
+    device_class: voltage
+    state_class: measurement
+
+  - name: ac_voltage_l2l3
+    input_type: Holding
+    register: 40078
+    length: 1
+    format: UInt16
+    scale_factor: V_SF
+    unit_of_measurement: V
+    device_class: voltage
+    state_class: measurement
+
+  - name: ac_voltage_l3l1
+    input_type: Holding
+    register: 40079
+    length: 1
+    format: UInt16
+    scale_factor: V_SF
+    unit_of_measurement: V
+    device_class: voltage
+    state_class: measurement
+
+  # --- AC Voltage (Line-to-Neutral) ---
+  - name: ac_voltage_l1
+    input_type: Holding
+    register: 40080
+    length: 1
+    format: UInt16
+    scale_factor: V_SF
+    unit_of_measurement: V
+    device_class: voltage
+    state_class: measurement
+
+  - name: ac_voltage_l2
+    input_type: Holding
+    register: 40081
+    length: 1
+    format: UInt16
+    scale_factor: V_SF
+    unit_of_measurement: V
+    device_class: voltage
+    state_class: measurement
+
+  - name: ac_voltage_l3
+    input_type: Holding
+    register: 40082
+    length: 1
+    format: UInt16
+    scale_factor: V_SF
+    unit_of_measurement: V
+    device_class: voltage
+    state_class: measurement
+
+  # --- AC Power ---
+  - name: ac_power
+    input_type: Holding
+    register: 40084
+    length: 1
+    format: Int16
+    scale_factor: W_SF
+    unit_of_measurement: W
+    device_class: power
+    state_class: measurement
+
+  # --- Frequency ---
+  - name: ac_frequency
+    input_type: Holding
+    register: 40086
+    length: 1
+    format: UInt16
+    scale_factor: Hz_SF
+    unit_of_measurement: Hz
+    device_class: frequency
+    state_class: measurement
+
+  # --- Apparent Power ---
+  - name: ac_apparent_power
+    input_type: Holding
+    register: 40088
+    length: 1
+    format: Int16
+    scale_factor: VA_SF
+    unit_of_measurement: VA
+    device_class: apparent_power
+    state_class: measurement
+
+  # --- Reactive Power ---
+  - name: ac_reactive_power
+    input_type: Holding
+    register: 40090
+    length: 1
+    format: Int16
+    scale_factor: VAr_SF
+    unit_of_measurement: var
+    device_class: reactive_power
+    state_class: measurement
+
+  # --- Power Factor ---
+  - name: ac_power_factor
+    input_type: Holding
+    register: 40092
+    length: 1
+    format: Int16
+    scale_factor: PF_SF
+    unit_of_measurement: "%"
+    device_class: power_factor
+    state_class: measurement
+
+  # --- Lifetime Energy (32-bit accumulator) ---
+  - name: ac_energy_total
+    input_type: Holding
+    register: 40094
+    length: 2
+    format: UInt32
+    scale_factor: WH_SF
+    unit_of_measurement: Wh
+    device_class: energy
+    state_class: total_increasing
+
+  # --- DC Current ---
+  - name: dc_current
+    input_type: Holding
+    register: 40097
+    length: 1
+    format: UInt16
+    scale_factor: DCA_SF
+    unit_of_measurement: A
+    device_class: current
+    state_class: measurement
+
+  # --- DC Voltage ---
+  - name: dc_voltage
+    input_type: Holding
+    register: 40099
+    length: 1
+    format: UInt16
+    scale_factor: DCV_SF
+    unit_of_measurement: V
+    device_class: voltage
+    state_class: measurement
+
+  # --- DC Power ---
+  - name: dc_power
+    input_type: Holding
+    register: 40101
+    length: 1
+    format: Int16
+    scale_factor: DCW_SF
+    unit_of_measurement: W
+    device_class: power
+    state_class: measurement
+
+  # --- Temperatures ---
+  - name: temperature_cabinet
+    input_type: Holding
+    register: 40103
+    length: 1
+    format: Int16
+    scale_factor: Tmp_SF
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+
+  - name: temperature_heatsink
+    input_type: Holding
+    register: 40104
+    length: 1
+    format: Int16
+    scale_factor: Tmp_SF
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+
+  # --- Operating State ---
+  - name: operating_state
+    input_type: Holding
+    register: 40108
+    length: 1
+    format: UInt16
+    unit_of_measurement: "NONE"
+    device_class: "NONE"
+    state_class: "NONE"
+    mappings:
+      - data: "1"
+        mapping: "off"
+      - data: "2"
+        mapping: "sleeping"
+      - data: "3"
+        mapping: "starting"
+      - data: "4"
+        mapping: "mppt"
+      - data: "5"
+        mapping: "throttled"
+      - data: "6"
+        mapping: "shutting_down"
+      - data: "7"
+        mapping: "fault"
+      - data: "8"
+        mapping: "standby"
+      - data: "_"
+        mapping: "unknown"

@@ -1,0 +1,19 @@
+# The sensor joins the network using OTAA
+# The sensor only transmits the current co2 level
+
+manufacturer: ZENNER International GmbH & Co. KG
+model: C02 Sensor
+support_url: https://zenner.de/products/iot_zenner-co2-indicator-l868-id-a-fuer-lorawan/
+
+aliases:
+  - !DevEUI ^04B648F33([0-9A-F]){7}$
+
+data_fields:
+  - name: co2
+    friendly_name: CO² concentration
+    unit_of_measurement: ppm
+    device_class: carbon_dioxide
+
+options:
+  has_gps: False
+  ignore_generated_values: True

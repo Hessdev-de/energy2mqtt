@@ -49,7 +49,8 @@ impl CommandHandler {
               "object_id":"bridge_restart",
               "payload_press":"restart",
               "unique_id":"e2m_management_bridge_restart",
-              "command_topic": "energy2mqtt/mgt/command"
+              "command_topic": "energy2mqtt/mgt/command",
+              "entity_category": "config"
             },
             "uptime": {
               "p":"sensor",
@@ -58,7 +59,8 @@ impl CommandHandler {
               "unique_id":"e2m_management_uptime",
               "state_topic": "energy2mqtt/mgt/uptime",
               "state_class": "measurement",
-              "unit_of_measurement": "s"
+              "unit_of_measurement": "s",
+              "entity_category": "diagnostic"
             }
           }
         }"###;
@@ -74,10 +76,10 @@ impl CommandHandler {
         let _ = self.sender.send(p).await;
 
         info!("Start waiting for command messages");
-        while let Some(c) = receiver.recv().await {
-            info!("Received command {c}");
+        while let Some((_topic, message)) = receiver.recv().await {
+            info!("Received command {message}");
             
-            if c == "restart" {
+            if message == "restart" {
                 /* if we exit that thread the rest will exit, too */
                 info!("Request to shutdown received");
                 return;

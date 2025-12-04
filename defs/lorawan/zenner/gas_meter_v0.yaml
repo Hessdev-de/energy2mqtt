@@ -1,0 +1,72 @@
+# The sensor joins the network using OTAA
+# The sensor only transmits the current co2 level
+
+manufacturer: ZENNER International GmbH & Co. KG
+model: Gas meter
+
+aliases:
+  - !DevEUI ^00956906([0-9A-F]){8}$
+
+data_fields:
+  # The device has two batteries
+  - name: battery_capacity
+    map_key: battery
+    friendly_name: Battery
+    unit_of_measurement: V
+    device_class: voltage
+    suggested_display_precision: 2
+  - name: secondary_battery_capacity
+    map_key: battery_secondary
+    friendly_name: Secondary Battery
+    unit_of_measurement: V
+    device_class: voltage
+    suggested_display_precision: 2
+  # the temperature is used to calibrate the device
+  - name: temperature
+    friendly_name: Temperature
+    unit_of_measurement: °C
+    device_class: temperature
+  - name: pressure
+    friendly_name: Pressure
+    unit_of_measurement: bar
+    device_class: pressure
+  # volume flown through the device
+  - name: volume
+    friendly_name: Volume
+    unit_of_measurement: m³
+    device_class: gas
+    state_class: total_increasing
+  # paid volume
+  - name: total_purchased_volume
+    friendly_name: Total purchased volume
+    unit_of_measurement: m³
+    device_class: gas
+    state_class: total
+  - name: gas_credit
+    friendly_name: Credits
+    entity_category: configuration
+  # RSSI of the reception
+  - name: rssi
+    map_key: rssi_dl
+    friendly_name: Downlink RSSI
+    entity_category: diagnostic
+    unit_of_measurement: dB
+    device_class: signal_strength
+  
+  # Binary sensor of the valve
+  # see https://www.home-assistant.io/integrations/binary_sensor/
+  - name: valve
+    platform: valve
+    friendly_name: valve
+    state_open: open/released
+    state_close: closed
+    payload_open: !Complex { data: "11223344", port: 66, imme: False }
+    payload_close: !Basic closed
+
+# Binary Sensor: valve -> open/released
+
+options:
+  has_gps: False
+  ignore_generated_values: False
+  has_command_topic: True
+  merge_old_data: True

@@ -1,16 +1,78 @@
+use std::collections::HashMap;
 use std::time::{Duration, SystemTime};
-use crate::{config::{ConfigBases, ConfigChange, ConfigOperation, ModbusConfig, ModbusDeviceConfig, ModbusHubConfig, ModbusProtoConfig}, metering_modbus::registers::Register, models::DeviceProtocol, mqtt::{ha_interface::{HaComponent, HaDiscover}, Transmission, publish_protocol_count}, MeteringData, CONFIG};
+use crate::{config::{ConfigBases, ConfigChange, ConfigOperation, ModbusConfig, ModbusDeviceConfig, ModbusHubConfig, ModbusProtoConfig}, metering_modbus::registers::Register, models::DeviceProtocol, mqtt::{ha_interface::{HaComponent, HaDiscover}, Transmission, publish_protocol_count}, task_monitor::TaskMonitor, MeteringData, CONFIG};
 use evalexpr::{ContextWithMutableVariables, DefaultNumericTypes, HashMapContext};
 use log::{debug, error, info, warn};
 use rmodbus::{client::ModbusRequest, guess_response_frame_len, ModbusProto};
-use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::TcpStream, sync::mpsc::Sender, task::JoinHandle};
+use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::TcpStream, sync::mpsc::Sender, time::timeout};
 pub mod registers;
+
+/// Errors that can occur during Modbus communication
+#[derive(Debug)]
+pub enum ModbusError {
+    ConnectionFailed(String),
+    ConnectionTimeout(u64),
+    ConnectionClosed,
+    ReadTimeout(u64),
+    WriteTimeout(u64),
+    WriteFailed(String),
+    ProtocolError(String),
+    IoError(std::io::Error),
+}
+
+impl std::fmt::Display for ModbusError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ModbusError::ConnectionFailed(msg) => write!(f, "Connection failed: {}", msg),
+            ModbusError::ConnectionTimeout(secs) => write!(f, "Connection timeout after {}s", secs),
+            ModbusError::ConnectionClosed => write!(f, "Connection closed by server"),
+            ModbusError::ReadTimeout(secs) => write!(f, "Read timeout after {}s", secs),
+            ModbusError::WriteTimeout(secs) => write!(f, "Write timeout after {}s", secs),
+            ModbusError::WriteFailed(msg) => write!(f, "Write failed: {}", msg),
+            ModbusError::ProtocolError(msg) => write!(f, "Protocol error: {}", msg),
+            ModbusError::IoError(e) => write!(f, "IO error: {}", e),
+        }
+    }
+}
+
+impl std::error::Error for ModbusError {}
+
+/// Connection state for a Modbus hub - lives in task scope across read cycles
+pub struct HubConnectionState {
+    stream: Option<TcpStream>,
+    connection_timeout: Duration,
+    read_timeout: Duration,
+    consecutive_failures: u32,
+}
+
+impl HubConnectionState {
+    fn new(config: &ModbusHubConfig) -> Self {
+        Self {
+            stream: None,
+            connection_timeout: Duration::from_secs(config.connection_timeout),
+            read_timeout: Duration::from_secs(config.read_timeout),
+            consecutive_failures: 0,
+        }
+    }
+
+    fn clear_connection(&mut self) {
+        self.stream = None;
+    }
+
+    fn record_success(&mut self) {
+        self.consecutive_failures = 0;
+    }
+
+    fn record_failure(&mut self) {
+        self.consecutive_failures += 1;
+    }
+}
 
 
 pub struct ModbusManger {
     sender: Sender<Transmission>,
     config_change: tokio::sync::broadcast::Receiver<ConfigChange>,
-    threads: Vec<JoinHandle<()>>,
+    task_monitor: TaskMonitor,
     config: ModbusConfig,
 }
 
@@ -31,14 +93,14 @@ pub struct ModbusHub
 
 impl ModbusManger
 {
-    pub fn new(sender: Sender<Transmission>, ) -> Self {
+    pub fn new(sender: Sender<Transmission>) -> Self {
         let config: ModbusConfig = crate::get_config_or_panic!("modbus", ConfigBases::Modbus);
 
-        return ModbusManger {
-            sender: sender,
+        ModbusManger {
+            sender: sender.clone(),
             config_change: CONFIG.read().unwrap().get_change_receiver(),
-            threads: Vec::new(),
-            config: config,
+            task_monitor: TaskMonitor::with_mqtt("modbus", sender),
+            config,
         }
     }
 
@@ -145,82 +207,229 @@ impl ModbusManger
                 }
 
                 
-                let join: JoinHandle<()> = tokio::spawn(async move {
-                    let hub_delay = Duration::from_secs(hub_inveral_sec as u64);
-                    let socket_addr = format!("{}:{}", hub.config.host, hub.config.port);
+                let hub_name_for_task = config_hub.name.clone();
+                self.task_monitor.spawn(
+                    &format!("hub_{}", hub_name_for_task),
+                    "modbus_hub",
+                    async move {
+                        let hub_delay = Duration::from_secs(hub_inveral_sec as u64);
+                        let socket_addr = format!("{}:{}", hub.config.host, hub.config.port);
 
-                    let mut proto = ModbusProto::TcpUdp;
-                    /* if we use RTUoverTCP we need to add all of those fancy CRC stuff */
-                    if hub.config.proto == ModbusProtoConfig::RTUoverTCP {
-                        proto = ModbusProto::Rtu;
-                    }
+                        let mut proto = ModbusProto::TcpUdp;
+                        /* if we use RTUoverTCP we need to add all of those fancy CRC stuff */
+                        if hub.config.proto == ModbusProtoConfig::RTUoverTCP {
+                            proto = ModbusProto::Rtu;
+                        }
 
-                    loop {
+                        // Create connection state that persists across read cycles
+                        let mut conn_state = HubConnectionState::new(&hub.config);
 
-                        /* Now sleep for one tick of hub_inveral_sec */
-                        tokio::time::sleep(hub_delay).await;
-    
-                        for device in hub.devices.iter_mut() {
-                            device.cur_waits += 1;
-    
-                            if device.cur_waits == device.waits_till_read {
-                                debug!("Hub {} Device {} start reading", hub.config.name, device.config.name);
-                                device.cur_waits = 0;
-                                
-                                if let Err(e) = read_device_with_retry(&socket_addr, device, &hub.config.name, proto, &hub_sender).await {
-                                    error!("Failed to read device {} after retries: {:?}", device.config.name, e);
-                                }
-                                
-                                debug!("Hub {} Device {} done reading", hub.config.name, device.config.name);
+                        loop {
+                            /* Now sleep for one tick of hub_inveral_sec */
+                            tokio::time::sleep(hub_delay).await;
+
+                            /* Increment wait counters for all devices */
+                            for device in hub.devices.iter_mut() {
+                                device.cur_waits += 1;
+                            }
+
+                            /* Read all devices that are due using persistent connection
+                             * This is critical for RTU over TCP where converters typically
+                             * only support one active connection at a time */
+                            read_hub_devices(
+                                &socket_addr,
+                                &mut hub.devices,
+                                &hub.config.name,
+                                proto,
+                                &hub_sender,
+                                &mut conn_state,
+                            ).await;
+
+                            // Log connection health if there are failures
+                            if conn_state.consecutive_failures > 0 {
+                                warn!("Hub {}: {} consecutive failures",
+                                      hub.config.name, conn_state.consecutive_failures);
                             }
                         }
                     }
-                });
-                
-                self.threads.push(join);
+                ).await;
             } /* loop per config hub */
 
             // Publish device count to MQTT
             publish_protocol_count(&self.sender, "modbus", device_count).await;
-            
-            info!("Modbus activated with {} hubs and {} devices, waiting for the rest of the system to become ready", self.config.hubs.len(), device_count);
-            
-            debug!("Now waiting for futher config changes");
+
+            info!(
+                "Modbus activated with {} hubs and {} devices, waiting for config changes",
+                self.config.hubs.len(),
+                device_count
+            );
+
+            // Wait for config changes while periodically checking task health
             loop {
-                let change = self.config_change.recv().await.unwrap();
-                if change.base == "modbus" {
-                    break;
+                tokio::select! {
+                    // Check for config changes
+                    change_result = self.config_change.recv() => {
+                        match change_result {
+                            Ok(change) if change.base == "modbus" => {
+                                info!("Modbus config change detected, restarting tasks");
+                                break;
+                            }
+                            Ok(_) => continue,
+                            Err(e) => {
+                                error!("Config change receiver error: {:?}", e);
+                                continue;
+                            }
+                        }
+                    }
+                    // Periodic health check every 30 seconds
+                    _ = tokio::time::sleep(Duration::from_secs(30)) => {
+                        let crashed = self.task_monitor.check_all_tasks().await;
+                        if !crashed.is_empty() {
+                            warn!(
+                                "Modbus: {} task(s) crashed! Tasks: {:?}",
+                                crashed.len(),
+                                crashed.iter().map(|(name, _, _)| name.clone()).collect::<Vec<_>>()
+                            );
+                        }
+
+                        let running = self.task_monitor.running_count().await;
+                        let total = self.task_monitor.task_count().await;
+                        debug!("Modbus task health: {}/{} tasks running", running, total);
+                    }
                 }
             }
 
-            /* We are waken up because some of our config changed so stop the threads and start over */
-            info!("Modbus is stopping threads");
-            for thread in self.threads.iter() {
-                thread.abort();
-            }
-
-            self.threads.clear();
+            /* We are woken up because some of our config changed, so stop the threads and start over */
+            info!("Modbus is stopping all hub tasks");
+            self.task_monitor.clear_all().await;
         }
-
     }
 }
 
-async fn read_device_with_retry(
+/// Establish a connection to a Modbus hub with timeout
+async fn connect_to_hub(
     socket_addr: &str,
-    device: &mut ModbusDevice,
+    connection_timeout: Duration,
+) -> Result<TcpStream, ModbusError> {
+    match timeout(connection_timeout, TcpStream::connect(socket_addr)).await {
+        Ok(Ok(stream)) => {
+            let _ = stream.set_nodelay(true);
+            Ok(stream)
+        }
+        Ok(Err(e)) => Err(ModbusError::ConnectionFailed(format!(
+            "Failed to connect to {}: {}", socket_addr, e
+        ))),
+        Err(_) => Err(ModbusError::ConnectionTimeout(connection_timeout.as_secs())),
+    }
+}
+
+/// Read all devices on a hub using persistent connection
+/// Connection is kept alive across read cycles; only reconnects on failure
+/// This is important for RTU over TCP where many converters only support one connection
+async fn read_hub_devices(
+    socket_addr: &str,
+    devices: &mut [ModbusDevice],
     hub_name: &str,
     proto: ModbusProto,
-    hub_sender: &Sender<Transmission>
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    hub_sender: &Sender<Transmission>,
+    conn_state: &mut HubConnectionState,
+) {
+    // Collect indices of devices that need to be read this cycle
+    let devices_to_read: Vec<usize> = devices.iter()
+        .enumerate()
+        .filter(|(_, d)| d.cur_waits >= d.waits_till_read)
+        .map(|(i, _)| i)
+        .collect();
+
+    if devices_to_read.is_empty() {
+        return;
+    }
+
+    // Ensure we have a connection (reuse existing or establish new)
+    if conn_state.stream.is_none() {
+        match connect_to_hub_with_retry(
+            socket_addr,
+            hub_name,
+            conn_state.connection_timeout
+        ).await {
+            Ok(s) => {
+                info!("Hub {}: Connection established", hub_name);
+                conn_state.stream = Some(s);
+                conn_state.consecutive_failures = 0;
+            }
+            Err(e) => {
+                error!("Hub {}: Failed to establish connection after retries: {:?}", hub_name, e);
+                conn_state.record_failure();
+                return;
+            }
+        }
+    }
+
+    // Read all devices using the persistent connection
+    for idx in devices_to_read {
+        let device = &mut devices[idx];
+        device.cur_waits = 0;
+
+        debug!("Hub {} Device {} start reading", hub_name, device.config.name);
+
+        // Get mutable reference to stream
+        let stream = conn_state.stream.as_mut().unwrap();
+
+        match read_device_registers(
+            stream,
+            device,
+            hub_name,
+            proto,
+            hub_sender,
+            conn_state.read_timeout
+        ).await {
+            Ok(_) => {
+                debug!("Hub {} Device {} done reading", hub_name, device.config.name);
+                conn_state.record_success();
+            }
+            Err(e) => {
+                error!("Hub {} Device {} read failed: {:?}", hub_name, device.config.name, e);
+                conn_state.record_failure();
+
+                // Close the broken connection
+                conn_state.clear_connection();
+
+                // Try to reconnect for remaining devices
+                match connect_to_hub_with_retry(
+                    socket_addr,
+                    hub_name,
+                    conn_state.connection_timeout
+                ).await {
+                    Ok(new_stream) => {
+                        conn_state.stream = Some(new_stream);
+                        warn!("Hub {}: Reconnected after device {} failure", hub_name, device.config.name);
+                    }
+                    Err(reconnect_err) => {
+                        error!("Hub {}: Failed to reconnect: {:?}. Skipping remaining devices.", hub_name, reconnect_err);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    // Connection is NOT dropped here - it persists for the next cycle
+}
+
+/// Connect to hub with retry logic
+async fn connect_to_hub_with_retry(
+    socket_addr: &str,
+    hub_name: &str,
+    connection_timeout: Duration,
+) -> Result<TcpStream, ModbusError> {
     const MAX_RETRIES: u32 = 3;
     let mut retries = 0;
-    
+
     loop {
-        match read_device_registers(socket_addr, device, hub_name, proto, hub_sender).await {
-            Ok(_) => return Ok(()),
+        match connect_to_hub(socket_addr, connection_timeout).await {
+            Ok(stream) => return Ok(stream),
             Err(e) if retries < MAX_RETRIES => {
-                warn!("Connection error for device {}, retrying ({}/{}): {:?}", 
-                      device.config.name, retries + 1, MAX_RETRIES, e);
+                warn!("Hub {}: Connection error, retrying ({}/{}): {:?}",
+                      hub_name, retries + 1, MAX_RETRIES, e);
                 retries += 1;
                 tokio::time::sleep(Duration::from_secs(1)).await;
                 continue;
@@ -230,19 +439,15 @@ async fn read_device_with_retry(
     }
 }
 
+/// Read registers from a single device using an existing connection
 async fn read_device_registers(
-    socket_addr: &str,
+    stream: &mut TcpStream,
     device: &mut ModbusDevice,
     hub_name: &str,
     proto: ModbusProto,
-    hub_sender: &Sender<Transmission>
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // Establish fresh connection for each device read
-    let stream = TcpStream::connect(socket_addr).await
-        .map_err(|e| format!("Failed to connect to {}: {}", socket_addr, e))?;
-    let mut stream = stream;
-    let _ = stream.set_nodelay(true);
-    
+    hub_sender: &Sender<Transmission>,
+    read_timeout: Duration,
+) -> Result<(), ModbusError> {
     let mut meter_data = MeteringData::new().unwrap();
     meter_data.meter_name = device.config.name.clone();
     meter_data.protocol = DeviceProtocol::ModbusTCP;
@@ -251,6 +456,8 @@ async fn read_device_registers(
     meter_data.metered_time = meter_data.transmission_time;
 
     let mut context = HashMapContext::<DefaultNumericTypes>::new();
+    // Store SunSpec scale factors for later application
+    let mut scale_factors: HashMap<String, i16> = HashMap::new();
 
     for reg in &device.registers {
         let reg = match reg {
@@ -259,10 +466,10 @@ async fn read_device_registers(
         };
 
         debug!("Hub {} Device {} Register {} start reading", hub_name, device.config.name, reg.name);
-        
+
         let mut mreq = ModbusRequest::new(device.config.slave_id, proto);
         let mut request = Vec::new();
-        
+
         match reg.input_type {
             registers::ModbusRegisterType::Holding => {
                 mreq.generate_get_holdings(reg.register, reg.length, &mut request).unwrap();
@@ -274,75 +481,204 @@ async fn read_device_registers(
                 mreq.generate_get_coils(reg.register, reg.length, &mut request).unwrap();
             }
         }
-        
-        // Write request with proper error handling
-        stream.write_all(&request).await
-            .map_err(|e| format!("Failed to write request for register {}: {}", reg.name, e))?;
-       
-        // Read response with proper error handling
+
+        // Write request with timeout
+        match timeout(read_timeout, stream.write_all(&request)).await {
+            Ok(Ok(_)) => {}
+            Ok(Err(e)) => {
+                return Err(ModbusError::WriteFailed(format!(
+                    "Failed to write request for register {}: {}", reg.name, e
+                )));
+            }
+            Err(_) => {
+                return Err(ModbusError::WriteTimeout(read_timeout.as_secs()));
+            }
+        }
+
+        // Read response header with timeout
         let mut buf = [0u8; 6];
-        let bytes_read = stream.read(&mut buf).await
-            .map_err(|e| format!("Failed to read response header for register {}: {}", reg.name, e))?;
-        
+        let bytes_read = match timeout(read_timeout, stream.read(&mut buf)).await {
+            Ok(Ok(n)) => n,
+            Ok(Err(e)) => {
+                return Err(ModbusError::IoError(e));
+            }
+            Err(_) => {
+                return Err(ModbusError::ReadTimeout(read_timeout.as_secs()));
+            }
+        };
+
         if bytes_read == 0 {
-            return Err(format!("Connection closed while reading register {}", reg.name).into());
+            return Err(ModbusError::ConnectionClosed);
         }
 
         let mut response = Vec::new();
         response.extend_from_slice(&buf[..bytes_read]);
 
         let len = guess_response_frame_len(&buf, proto)
-            .map_err(|e| format!("Failed to determine response length for register {}: {:?}", reg.name, e))?;
-        
+            .map_err(|e| ModbusError::ProtocolError(format!(
+                "Failed to determine response length for register {}: {:?}", reg.name, e
+            )))?;
+
         if len as usize > bytes_read {
             let mut rest = vec![0u8; len as usize - bytes_read];
-            let rest_bytes = stream.read(&mut rest).await
-                .map_err(|e| format!("Failed to read response body for register {}: {}", reg.name, e))?;
-            
+
+            // Read rest of response with timeout
+            let rest_bytes = match timeout(read_timeout, stream.read(&mut rest)).await {
+                Ok(Ok(n)) => n,
+                Ok(Err(e)) => {
+                    return Err(ModbusError::IoError(e));
+                }
+                Err(_) => {
+                    return Err(ModbusError::ReadTimeout(read_timeout.as_secs()));
+                }
+            };
+
             if rest_bytes == 0 {
-                return Err(format!("Connection closed while reading register {} body", reg.name).into());
+                return Err(ModbusError::ConnectionClosed);
             }
-            
+
             response.extend(&rest[..rest_bytes]);
         }
 
-        // Process the response
-        let mut v: u32 = 0;
-        let ok: bool;
+        // Process the response - use f64 to handle all numeric types
+        let parsed_value: Result<f64, String>;
+        let mut string_value: Option<String> = None;
 
         match reg.format {
-            registers::ModbusRegisterFormat::Int32 => { 
+            registers::ModbusRegisterFormat::Int32 => {
                 let mut data = Vec::new();
-                let d = mreq.parse_u16(&response, &mut data);
-                match d {
-                    Err(e) => { 
-                        error!("Error getting response for register {}: {:?}", reg.name, e); 
-                        ok = false;
+                match mreq.parse_i16(&response, &mut data) {
+                    Err(e) => {
+                        parsed_value = Err(format!("{:?}", e));
                     }
                     Ok(()) => {
-                        v = u32::from(data[0]) << 16 | u32::from(data[1]);
-                        ok = true;
+                        let v = ((data[0] as i32) << 16) | (data[1] as u16 as i32);
+                        parsed_value = Ok(v as f64);
                     }
-                }    
+                }
             },
-            registers::ModbusRegisterFormat::Int16 => { 
+            registers::ModbusRegisterFormat::Int16 => {
                 let mut data = Vec::new();
-                let d = mreq.parse_u16(&response, &mut data);
-                match d {
-                    Err(e) => { 
-                        error!("Error getting response for register {}: {:?}", reg.name, e); 
-                        ok = false;
+                match mreq.parse_i16(&response, &mut data) {
+                    Err(e) => {
+                        parsed_value = Err(format!("{:?}", e));
                     }
                     Ok(()) => {
-                        v = u32::from(data[0]);
-                        ok = true;
+                        parsed_value = Ok(data[0] as f64);
                     }
-                }    
+                }
+            },
+            registers::ModbusRegisterFormat::UInt32 => {
+                let mut data = Vec::new();
+                match mreq.parse_u16(&response, &mut data) {
+                    Err(e) => {
+                        parsed_value = Err(format!("{:?}", e));
+                    }
+                    Ok(()) => {
+                        let v = ((data[0] as u32) << 16) | (data[1] as u32);
+                        parsed_value = Ok(v as f64);
+                    }
+                }
+            },
+            registers::ModbusRegisterFormat::UInt16 => {
+                let mut data = Vec::new();
+                match mreq.parse_u16(&response, &mut data) {
+                    Err(e) => {
+                        parsed_value = Err(format!("{:?}", e));
+                    }
+                    Ok(()) => {
+                        parsed_value = Ok(data[0] as f64);
+                    }
+                }
+            },
+            registers::ModbusRegisterFormat::Float32 => {
+                let mut data = Vec::new();
+                match mreq.parse_u16(&response, &mut data) {
+                    Err(e) => {
+                        parsed_value = Err(format!("{:?}", e));
+                    }
+                    Ok(()) => {
+                        // IEEE 754 float32: combine two u16 registers (big-endian)
+                        let bits = ((data[0] as u32) << 16) | (data[1] as u32);
+                        let v = f32::from_bits(bits);
+                        parsed_value = Ok(v as f64);
+                    }
+                }
+            },
+            registers::ModbusRegisterFormat::String => {
+                let mut data = Vec::new();
+                match mreq.parse_u16(&response, &mut data) {
+                    Err(e) => {
+                        parsed_value = Err(format!("{:?}", e));
+                    }
+                    Ok(()) => {
+                        // Convert u16 registers to string (2 chars per register, big-endian)
+                        let mut chars = Vec::new();
+                        for word in &data {
+                            let hi = ((*word >> 8) & 0xFF) as u8;
+                            let lo = (*word & 0xFF) as u8;
+                            if hi != 0 { chars.push(hi); }
+                            if lo != 0 { chars.push(lo); }
+                        }
+                        string_value = Some(String::from_utf8_lossy(&chars).trim_end_matches('\0').trim().to_string());
+                        parsed_value = Ok(0.0); // Placeholder, we use string_value
+                    }
+                }
+            },
+            registers::ModbusRegisterFormat::SunSSF => {
+                // SunSpec scale factor: int16 representing power of 10 exponent
+                let mut data = Vec::new();
+                match mreq.parse_i16(&response, &mut data) {
+                    Err(e) => {
+                        parsed_value = Err(format!("{:?}", e));
+                    }
+                    Ok(()) => {
+                        let sf = data[0];
+                        scale_factors.insert(reg.name.clone(), sf);
+                        debug!("Hub {} Device {}: Stored scale factor {} = {}",
+                               hub_name, device.config.name, reg.name, sf);
+                        parsed_value = Ok(sf as f64);
+                    }
+                }
             },
         }
 
-        if ok {
-            let v = (v as f32 * reg.scaler).round();
+        if let Err(e) = &parsed_value {
+            error!("Error getting response for register {}: {}", reg.name, e);
+            continue;
+        }
+
+        // Handle string values separately
+        if let Some(s) = string_value {
+            meter_data.metered_values.insert(reg.name.clone(), serde_json::Value::from(s.clone()));
+            let _ = context.set_value(reg.name.clone(), evalexpr::Value::String(s));
+            continue;
+        }
+
+        // For SunSSF, don't add to metered_values (they're internal scale factors)
+        if reg.format == registers::ModbusRegisterFormat::SunSSF {
+            continue;
+        }
+
+        let raw_value = parsed_value.unwrap();
+
+        // Apply scale factor: either from referenced SunSSF register or from static scaler
+        let scaled_value = if let Some(ref sf_name) = reg.scale_factor {
+            if let Some(&sf) = scale_factors.get(sf_name) {
+                // SunSpec scale factor: value * 10^sf
+                raw_value * 10_f64.powi(sf as i32)
+            } else {
+                warn!("Hub {} Device {}: Scale factor {} not found for register {}, using raw value",
+                      hub_name, device.config.name, sf_name, reg.name);
+                raw_value * reg.scaler as f64
+            }
+        } else {
+            // Use static scaler
+            raw_value * reg.scaler as f64
+        };
+
+        {
+            let v = scaled_value;
             let mut value = serde_json::Value::from(v);
 
             let mut found = false;

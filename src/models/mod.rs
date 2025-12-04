@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Display};
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
@@ -86,31 +86,15 @@ pub enum DeviceProtocol {
     IEC62056,
     SML,
     Victron,
-    KNX
+    KNX,
+    ZennerDatahub
 }
 
-impl DeviceProtocol {
-    pub fn from_str(s: &str) -> Option<Self> {
-        match s {
-            "Modbus TCP" => Some(DeviceProtocol::ModbusTCP),
-            "Modbus RTU" => Some(DeviceProtocol::ModbusRTU),
-            "OMS" => Some(DeviceProtocol::OMS),
-            "M-Bus" => Some(DeviceProtocol::MBUS),
-            "LoRaWAN" => Some(DeviceProtocol::LoRaWAN),
-            "NBIoT" => Some(DeviceProtocol::NBIoT),
-            "Tibber" => Some(DeviceProtocol::Tibber),
-            "IEC 62056-21" => Some(DeviceProtocol::IEC62056),
-            "SML" => Some(DeviceProtocol::SML),
-            "Victron" => Some(DeviceProtocol::Victron),
-            "KNX" => Some(DeviceProtocol::KNX),
-            _ => Some(DeviceProtocol::Unknown),
-        }
-    }
-
-    pub fn to_string(&self) -> String {
-        match self {
-            DeviceProtocol::ModbusTCP => "Modbus TCP".to_string(),
-            DeviceProtocol::ModbusRTU => "Modbus RTU".to_string(),
+impl Display for DeviceProtocol {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", match self {
+            DeviceProtocol::ModbusTCP => "ModbusTCP".to_string(),
+            DeviceProtocol::ModbusRTU => "ModbusRTU".to_string(),
             DeviceProtocol::OMS => "OMS".to_string(),
             DeviceProtocol::MBUS => "M-Bus".to_string(),
             DeviceProtocol::LoRaWAN => "LoRaWAN".to_string(),
@@ -121,6 +105,45 @@ impl DeviceProtocol {
             DeviceProtocol::SML => "SML".to_string(),
             DeviceProtocol::Victron => "Victron".to_string(),
             DeviceProtocol::KNX => "KNX".to_string(),
+            DeviceProtocol::ZennerDatahub => "zridh".to_string(),
+        })
+    }
+}
+
+impl DeviceProtocol {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "ModbusTCP" => Some(DeviceProtocol::ModbusTCP),
+            "ModbusRTU" => Some(DeviceProtocol::ModbusRTU),
+            "OMS" => Some(DeviceProtocol::OMS),
+            "M-Bus" => Some(DeviceProtocol::MBUS),
+            "LoRaWAN" => Some(DeviceProtocol::LoRaWAN),
+            "NBIoT" => Some(DeviceProtocol::NBIoT),
+            "Tibber" => Some(DeviceProtocol::Tibber),
+            "IEC 62056-21" => Some(DeviceProtocol::IEC62056),
+            "SML" => Some(DeviceProtocol::SML),
+            "Victron" => Some(DeviceProtocol::Victron),
+            "KNX" => Some(DeviceProtocol::KNX),
+            "ZENNER Datahub" => Some(DeviceProtocol::ZennerDatahub),
+            _ => Some(DeviceProtocol::Unknown),
+        }
+    }
+
+    pub fn to_string(&self) -> String {
+        match self {
+            DeviceProtocol::ModbusTCP => "ModbusTCP".to_string(),
+            DeviceProtocol::ModbusRTU => "ModbusRTU".to_string(),
+            DeviceProtocol::OMS => "OMS".to_string(),
+            DeviceProtocol::MBUS => "M-Bus".to_string(),
+            DeviceProtocol::LoRaWAN => "LoRaWAN".to_string(),
+            DeviceProtocol::NBIoT => "NBIoT".to_string(),
+            DeviceProtocol::Unknown => "Unknown".to_string(),
+            DeviceProtocol::Tibber => "Tibber".to_string(),
+            DeviceProtocol::IEC62056 => "IEC 62056-21".to_string(),
+            DeviceProtocol::SML => "SML".to_string(),
+            DeviceProtocol::Victron => "Victron".to_string(),
+            DeviceProtocol::KNX => "KNX".to_string(),
+            DeviceProtocol::ZennerDatahub => "ZENNER Datahub".to_string(),
         }
     }
 }

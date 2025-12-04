@@ -8,6 +8,7 @@ pub struct HaDevice {
     name: String,
     manufacturer: String,
     model: String,
+    pub via_device: String,
 }
 #[derive(Serialize)]
 pub struct HaOrigin {
@@ -247,11 +248,12 @@ impl HaDiscover {
                 name: name.clone(),
                 manufacturer: manu,
                 model: model,
+                via_device: "e2m_management".to_string(),
             }, 
             o: HaOrigin {
                 name: "energy2mqtt".to_string(),
                 sw_version: "0.1.1".to_string(),
-                support_url: "https://energy2mqtt.org".to_string()
+                support_url: "https://energy2mqtt.org".to_string(),
             },
             cmps: serde_json::Map::new(),
             state_topic: format!("energy2mqtt/devs/{}/{}", proto, name),
@@ -265,12 +267,14 @@ impl HaDiscover {
                 ids: format!("e2m_{}_{}", proto.clone(), name.clone()),
                 name: name,
                 manufacturer: manu,
-                model: model
+                model: model,
+                via_device: "e2m_management".to_string(),
             }, 
             o: HaOrigin {
                 name: "energy2mqtt".to_string(),
                 sw_version: "0.1.1".to_string(),
-                support_url: "https://energy2mqtt.org".to_string()
+                support_url: "https://energy2mqtt.org".to_string(),
+                
             },
             cmps: serde_json::Map::new(),
             state_topic: format!("energy2mqtt/devs/{}/{}", proto, topic),

@@ -120,7 +120,7 @@ impl VictronManager {
             info!("No Victron devices found, waiting for a config change to wake me up");
             loop {
                 let change = self.config_change.recv().await.unwrap();
-                if change.operation != ConfigOperation::ADD || change.base != "modbus" {
+                if change.operation != ConfigOperation::ADD || change.base != "victron" {
                     continue;
                 }
                 

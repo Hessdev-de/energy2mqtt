@@ -37,7 +37,7 @@ impl Iec62056Manager {
         let _ = self.sender.send(register).await;
 
         info!("Starting IEC 62056-21 waiting for messages");
-        while let Some(message) = receiver.recv().await {
+        while let Some((_topic, message)) = receiver.recv().await {
             debug!("Received IEC 62056-21 message: {}", message);
             
             match parse_iec62056_telegram(&message) {

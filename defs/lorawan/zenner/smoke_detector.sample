@@ -1,0 +1,104 @@
+{
+  "gateways": [
+    [
+      "04B64811C304",
+      -59,
+      11.75,
+      0,
+      "udp://10.20.1.22:1681",
+      "CLSCON-1be91ff1-8231-477b-bcd4-7525839cc7e5-001022",
+      1471191252
+    ]
+  ],
+  "uid": "CLSCON-1be91ff1-8231-477b-bcd4-7525839cc7e5-001022§00003A_74902100",
+  "maintenant": "zenneruae",
+  "data": {
+    "lora": {
+      "modu": "LORA",
+      "freq": 867900000,
+      "jver": 1,
+      "frame_counter": 871,
+      "cip": 0,
+      "tmst": 1471191252,
+      "rfch": 1,
+      "dir": "up",
+      "is_duplicate": false,
+      "abp_reset_detected": false,
+      "mtype": "confirmed_data_up",
+      "codr": "4/5",
+      "major": 0,
+      "dev_addr": "74902100",
+      "datr": "SF12BW125",
+      "mac_commands": [],
+      "fport": 1,
+      "lsnr": 11.75,
+      "chan": 0,
+      "fctrl": {
+        "adr_ack_req": false,
+        "ack": false,
+        "fopts_len": 0,
+        "class_b": false,
+        "adr": true
+      }
+    },
+    "rssi": -59,
+    "proposedDevAddr": "74902100",
+    "ownernumber": "04B6480B01649521",
+    "raw": {
+      "encrypted": "gAAhkHSAZwMBTtatUcM4Tdrf",
+      "decrypted": "EQiAAAA="
+    },
+    "uuid": "5b5b377e-b8d8-4ed4-a37e-4bfdba27109a",
+    "unmapped": {
+      "flag_error_led_failure": false,
+      "flag_error_test_button_failure": false,
+      "flag_warning_obstruction_detection": false,
+      "flag_warning_battery_end_date_reached": false,
+      "flag_error_acoustic_alarm_failure": false,
+      "channel0": 32776,
+      "flag_error_smoke_chamber_pollution": false,
+      "flag_error_battery_low": false,
+      "flag_warning_smoke_alarm": false,
+      "flag_warning_surrounding_area_monitoring": true,
+      "flag_warning_smoke_chamber_pollution": false,
+      "flag_warning_removal_detection": true,
+      "flag_warning_test_alarm": false
+    }
+  },
+  "clsbox": "04B64811C304",
+  "meta": {
+    "packettype": "SP11",
+    "parser": "2.0.21",
+    "SPValue": "11",
+    "billingperiod": "daily",
+    "tsDeviceCorrected": true,
+    "devicetypename": "RWM",
+    "devicetype": "SD_LoRa",
+    "devicetypeid": 0
+  },
+  "type": "lora",
+  "version": 1,
+  "devicetypename": "SD_LoRa",
+  "tenant": "zenneruae",
+  "status": [
+    "ok"
+  ],
+  "ts": {
+    "lns": 1765760370,
+    "server": 1765760387,
+    "dlAnswer": [
+      1765760371
+    ],
+    "parser": 1765760370,
+    "datastore": 1765760387,
+    "converter": 1765760387,
+    "fwdLns": 1765760370,
+    "dl": [
+      1765760370
+    ],
+    "deviceOrig": 1765760408,
+    "eventtime": 1765753200,
+    "lnsnano": 1765760370.141552,
+    "device": 1765760370
+  }
+}

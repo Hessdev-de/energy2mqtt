@@ -1,4 +1,4 @@
-use energy2mqtt::{mqtt::{internal_commands::CommandHandler, publish_uptime, MqttManager}, ApiManager, DeviceManager, Iec62056Manager, ModbusManger, OmsManager, SmlManager, VictronManager, CONFIG};
+use energy2mqtt::{ApiManager, CONFIG, DeviceManager, Iec62056Manager, KnxManager, ModbusManger, OmsManager, SmlManager, VictronManager, ZennerDatahubManager, mqtt::{MqttManager, internal_commands::CommandHandler, publish_uptime}};
 use tokio::task::JoinHandle;
 use std::{env, time::Duration};
 use log::info;
@@ -68,6 +68,20 @@ async fn main() -> std::io::Result<()> {
             }));
         }
     }
+
+    // Start manager for ZENNER datahub
+    let mr_sender = device_manager.get_sender_instance();
+    let mut zridh = ZennerDatahubManager::new(mr_sender);
+    threads.push(tokio::spawn(async move {
+        zridh.start_thread().await;
+    }));
+
+    // Start KNX manager
+    let mr_sender = device_manager.get_sender_instance();
+    let mut knx = KnxManager::new(mr_sender);
+    threads.push(tokio::spawn(async move {
+        knx.start_thread().await;
+    }));
 
     /* Run our api gateway now */
     let api = ApiManager::new();

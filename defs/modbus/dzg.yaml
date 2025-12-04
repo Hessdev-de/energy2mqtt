@@ -7,7 +7,7 @@ registers:
     input_type: Holding
     register: 0
     length: 2
-    format: Int32
+    format: UInt32
     scaler: 0.1
     unit_of_measurement: W
     device_class: power
@@ -17,7 +17,7 @@ registers:
     input_type: Holding
     register: 2
     length: 2
-    format: Int32
+    format: UInt32
     scaler: 0.1
     unit_of_measurement: W
     device_class: power
@@ -27,7 +27,7 @@ registers:
     input_type: Holding
     register: 4
     length: 2
-    format: Int32
+    format: UInt32
     scaler: 0.01
     unit_of_measurement: V
     device_class: voltage
@@ -37,7 +37,7 @@ registers:
     input_type: Holding
     register: 6
     length: 2
-    format: Int32
+    format: UInt32
     scaler: 0.01
     unit_of_measurement: V
     device_class: voltage
@@ -47,7 +47,7 @@ registers:
     input_type: Holding
     register: 8
     length: 2
-    format: Int32
+    format: UInt32
     scaler: 0.01
     unit_of_measurement: V
     device_class: voltage
@@ -87,7 +87,7 @@ registers:
     input_type: Holding
     register: 18
     length: 2
-    format: Int32
+    format: UInt32
     scaler: 0.001
     unit_of_measurement: Hz
     device_class: frequency
@@ -97,7 +97,7 @@ registers:
     input_type: Holding
     register: 16384
     length: 2
-    format: Int32
+    format: UInt32
     scaler: 1.0
     unit_of_measurement: Wh
     device_class: energy
@@ -107,7 +107,7 @@ registers:
     input_type: Holding
     register: 16640
     length: 2
-    format: Int32
+    format: UInt32
     scaler: 1.0
     unit_of_measurement: Wh
     device_class: energy
@@ -115,7 +115,7 @@ registers:
 
 templates:
   - name: current_all
-    value: "current_l1 + current_l3 + current_l3"
+    value: "current_l1 + current_l2 + current_l3"
     unit_of_measurement: A
     device_class: current
     state_class: measurement

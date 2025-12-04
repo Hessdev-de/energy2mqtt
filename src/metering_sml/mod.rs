@@ -46,7 +46,7 @@ impl SmlManager {
         let _ = self.sender.send(register).await;
         
         info!("Starting SML waiting for messages");
-        while let Some(payload_hex) = receiver.recv().await {
+        while let Some((_topic, payload_hex)) = receiver.recv().await {
             let payload = match hex::decode(&payload_hex) {
                 Ok(data) => data,
                 Err(_) => {
@@ -134,6 +134,7 @@ impl SmlManager {
             transmission_type: TranmissionValueType::Now,
             metered_time: current_time,
             metered_values,
+            state_topic_base: "".to_string()
         };
 
         // Send metering data through the transmission channel

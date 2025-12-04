@@ -1,0 +1,269 @@
+# SunSpec Single-Phase Inverter (Model 101)
+# Standard SunSpec Modbus register map for single-phase solar inverters
+# Base address: 40000 (0-based Modbus addressing)
+#
+# Compatible devices: SolarEdge, SMA, Fronius, Enphase, and other
+# SunSpec-compliant single-phase inverters
+
+manufacturer: SunSpec
+model: Inverter 1-Phase (Model 101)
+aliases:
+  - sunspec_101
+  - sunspec_1p
+  - solaredge_1p
+  - sma_1p
+  - fronius_1p
+
+registers:
+  # ============================================
+  # Model 1: Common Block (starts at 40002)
+  # ============================================
+  - name: manufacturer
+    input_type: Holding
+    register: 40004
+    length: 16
+    format: String
+    unit_of_measurement: "NONE"
+    device_class: "NONE"
+    state_class: "NONE"
+
+  - name: model
+    input_type: Holding
+    register: 40020
+    length: 16
+    format: String
+    unit_of_measurement: "NONE"
+    device_class: "NONE"
+    state_class: "NONE"
+
+  - name: serial_number
+    input_type: Holding
+    register: 40052
+    length: 16
+    format: String
+    unit_of_measurement: "NONE"
+    device_class: "NONE"
+    state_class: "NONE"
+
+  # ============================================
+  # Model 101: Single-Phase Inverter (starts at 40070)
+  # Scale factors MUST be read first
+  # ============================================
+
+  # --- Scale Factors ---
+  - name: A_SF
+    input_type: Holding
+    register: 40076
+    length: 1
+    format: SunSSF
+    unit_of_measurement: "NONE"
+    device_class: "NONE"
+    state_class: "NONE"
+
+  - name: V_SF
+    input_type: Holding
+    register: 40083
+    length: 1
+    format: SunSSF
+    unit_of_measurement: "NONE"
+    device_class: "NONE"
+    state_class: "NONE"
+
+  - name: W_SF
+    input_type: Holding
+    register: 40085
+    length: 1
+    format: SunSSF
+    unit_of_measurement: "NONE"
+    device_class: "NONE"
+    state_class: "NONE"
+
+  - name: Hz_SF
+    input_type: Holding
+    register: 40087
+    length: 1
+    format: SunSSF
+    unit_of_measurement: "NONE"
+    device_class: "NONE"
+    state_class: "NONE"
+
+  - name: WH_SF
+    input_type: Holding
+    register: 40096
+    length: 1
+    format: SunSSF
+    unit_of_measurement: "NONE"
+    device_class: "NONE"
+    state_class: "NONE"
+
+  - name: DCA_SF
+    input_type: Holding
+    register: 40098
+    length: 1
+    format: SunSSF
+    unit_of_measurement: "NONE"
+    device_class: "NONE"
+    state_class: "NONE"
+
+  - name: DCV_SF
+    input_type: Holding
+    register: 40100
+    length: 1
+    format: SunSSF
+    unit_of_measurement: "NONE"
+    device_class: "NONE"
+    state_class: "NONE"
+
+  - name: DCW_SF
+    input_type: Holding
+    register: 40102
+    length: 1
+    format: SunSSF
+    unit_of_measurement: "NONE"
+    device_class: "NONE"
+    state_class: "NONE"
+
+  - name: Tmp_SF
+    input_type: Holding
+    register: 40107
+    length: 1
+    format: SunSSF
+    unit_of_measurement: "NONE"
+    device_class: "NONE"
+    state_class: "NONE"
+
+  # --- AC Current ---
+  - name: ac_current
+    input_type: Holding
+    register: 40072
+    length: 1
+    format: UInt16
+    scale_factor: A_SF
+    unit_of_measurement: A
+    device_class: current
+    state_class: measurement
+
+  # --- AC Voltage ---
+  - name: ac_voltage
+    input_type: Holding
+    register: 40080
+    length: 1
+    format: UInt16
+    scale_factor: V_SF
+    unit_of_measurement: V
+    device_class: voltage
+    state_class: measurement
+
+  # --- AC Power ---
+  - name: ac_power
+    input_type: Holding
+    register: 40084
+    length: 1
+    format: Int16
+    scale_factor: W_SF
+    unit_of_measurement: W
+    device_class: power
+    state_class: measurement
+
+  # --- Frequency ---
+  - name: ac_frequency
+    input_type: Holding
+    register: 40086
+    length: 1
+    format: UInt16
+    scale_factor: Hz_SF
+    unit_of_measurement: Hz
+    device_class: frequency
+    state_class: measurement
+
+  # --- Lifetime Energy ---
+  - name: ac_energy_total
+    input_type: Holding
+    register: 40094
+    length: 2
+    format: UInt32
+    scale_factor: WH_SF
+    unit_of_measurement: Wh
+    device_class: energy
+    state_class: total_increasing
+
+  # --- DC Current ---
+  - name: dc_current
+    input_type: Holding
+    register: 40097
+    length: 1
+    format: UInt16
+    scale_factor: DCA_SF
+    unit_of_measurement: A
+    device_class: current
+    state_class: measurement
+
+  # --- DC Voltage ---
+  - name: dc_voltage
+    input_type: Holding
+    register: 40099
+    length: 1
+    format: UInt16
+    scale_factor: DCV_SF
+    unit_of_measurement: V
+    device_class: voltage
+    state_class: measurement
+
+  # --- DC Power ---
+  - name: dc_power
+    input_type: Holding
+    register: 40101
+    length: 1
+    format: Int16
+    scale_factor: DCW_SF
+    unit_of_measurement: W
+    device_class: power
+    state_class: measurement
+
+  # --- Temperature ---
+  - name: temperature_cabinet
+    input_type: Holding
+    register: 40103
+    length: 1
+    format: Int16
+    scale_factor: Tmp_SF
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+
+  # --- Operating State ---
+  - name: operating_state
+    input_type: Holding
+    register: 40108
+    length: 1
+    format: UInt16
+    unit_of_measurement: "NONE"
+    device_class: "NONE"
+    state_class: "NONE"
+    mappings:
+      - data: "1"
+        mapping: "off"
+      - data: "2"
+        mapping: "sleeping"
+      - data: "3"
+        mapping: "starting"
+      - data: "4"
+        mapping: "mppt"
+      - data: "5"
+        mapping: "throttled"
+      - data: "6"
+        mapping: "shutting_down"
+      - data: "7"
+        mapping: "fault"
+      - data: "8"
+        mapping: "standby"
+      - data: "_"
+        mapping: "unknown"
+
+templates:
+  # Calculate efficiency
+  - name: efficiency
+    value: "if(dc_power > 0, ac_power / dc_power * 100, 0)"
+    unit_of_measurement: "%"
+    device_class: "NONE"
+    state_class: measurement

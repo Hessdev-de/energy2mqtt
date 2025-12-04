@@ -20,6 +20,8 @@ pub struct HttpdConfig {
 }
 
 fn mqtt_client_name_default() -> String { return "energy2mqtt".to_string() }
+fn mqtt_client_user_default() -> String { return "energy2mqtt".to_string() }
+fn mqtt_client_pass_default() -> String { return "energy2mqtt".to_string() }
 
 #[derive(Deserialize, Serialize, Clone)]
 pub struct MqttConfig {
@@ -59,6 +61,9 @@ pub enum ModbusProtoConfig {
 }
 
 fn modbus_hubs_devices_default() -> Vec<ModbusDeviceConfig> { return Vec::new() }
+fn modbus_hub_connection_timeout_default() -> u64 { 10 }
+fn modbus_hub_read_timeout_default() -> u64 { 5 }
+
 #[derive(Deserialize, Serialize, Clone, ToSchema)]
 pub struct ModbusHubConfig
 {
@@ -66,6 +71,10 @@ pub struct ModbusHubConfig
     pub host: String,
     pub port: u16,
     pub proto: ModbusProtoConfig,
+    #[serde(default="modbus_hub_connection_timeout_default")]
+    pub connection_timeout: u64,  // Connection timeout in seconds
+    #[serde(default="modbus_hub_read_timeout_default")]
+    pub read_timeout: u64,        // Read/write timeout in seconds
     #[serde(default="modbus_hubs_devices_default")]
     pub devices: Vec<ModbusDeviceConfig>
 }
@@ -108,25 +117,15 @@ pub struct OmsConfig {
     pub key: String,
 }
 
-fn victron_client_name_default() -> String {
-    return "energy2mqtt".to_string();
-}
-
 #[derive(Deserialize, Serialize, Clone, ToSchema)]
 pub struct VictronConfig {
     pub name: String,
-    #[serde(default="victron_client_name_default")]
+    #[serde(default="mqtt_client_name_default")]
     pub client_name: String,
     pub broker_host: String,
     pub broker_port: u16,
     pub update_interval: u64,
     pub enabled: bool,
-}
-
-#[derive(Deserialize, Serialize, Clone, ToSchema, PartialEq)]
-pub enum KnxConnectionType {
-    TcpDirect,          // Direct TCP connection to KNX/IP interface
-    UdpTunneling,       // UDP tunneling via KNXd daemon
 }
 
 #[derive(Deserialize, Serialize, Clone, ToSchema, PartialEq, Debug)]
@@ -169,6 +168,7 @@ pub struct KnxPhaseConfig {
 fn knx_meter_enabled_default() -> bool { true }
 fn knx_meter_read_interval_default() -> u64 { 60 }
 fn knx_meter_phases_default() -> Vec<KnxPhaseConfig> { Vec::new() }
+fn knx_meter_calculate_totals_default() -> bool { true }
 
 #[derive(Deserialize, Serialize, Clone, ToSchema)]
 pub struct KnxMeterConfig {
@@ -177,10 +177,38 @@ pub struct KnxMeterConfig {
     pub enabled: bool,
     #[serde(default="knx_meter_read_interval_default")]
     pub read_interval: u64,             // Seconds between reads
+
+    /// Optional manufacturer for HA discovery (e.g., "ABB", "Siemens")
+    pub manufacturer: Option<String>,
+    /// Optional model for HA discovery (e.g., "Energy Meter EM/S")
+    pub model: Option<String>,
+
+    // Multi-phase configuration
     #[serde(default="knx_meter_phases_default")]
     pub phases: Vec<KnxPhaseConfig>,    // 1-3 phases
-    pub total_energy_ga: Option<String>, // Optional total energy group address
-    pub total_power_ga: Option<String>,  // Optional total power group address
+
+    // Single-meter configuration (alternative to phases)
+    pub voltage_ga: Option<String>,
+    pub current_ga: Option<String>,
+    pub power_ga: Option<String>,
+    pub energy_ga: Option<String>,
+    #[serde(default="knx_phase_voltage_type_default")]
+    pub voltage_type: KnxDatapointType,
+    #[serde(default="knx_phase_current_type_default")]
+    pub current_type: KnxDatapointType,
+    #[serde(default="knx_phase_power_type_default")]
+    pub power_type: KnxDatapointType,
+    #[serde(default="knx_phase_energy_type_default")]
+    pub energy_type: KnxDatapointType,
+
+    // Total values (read from bus or calculated from phases)
+    pub total_energy_ga: Option<String>,
+    pub total_power_ga: Option<String>,
+    pub total_current_ga: Option<String>,
+
+    /// If true and phases are set, calculate *_all values by summing phase values
+    #[serde(default="knx_meter_calculate_totals_default")]
+    pub calculate_totals: bool,
 }
 
 fn knx_switch_enabled_default() -> bool { true }
@@ -203,7 +231,30 @@ fn knx_adapter_connection_timeout_default() -> u64 { 10 }
 fn knx_adapter_read_timeout_default() -> u64 { 5 }
 fn knx_adapter_meters_default() -> Vec<KnxMeterConfig> { Vec::new() }
 fn knx_adapter_switches_default() -> Vec<KnxSwitchConfig> { Vec::new() }
-fn knx_adapter_connection_type_default() -> KnxConnectionType { KnxConnectionType::TcpDirect }
+fn knx_adapter_poll_groups_default() -> Vec<KnxPollGroupConfig> { Vec::new() }
+fn knx_poll_interval_default() -> u64 { 60 }
+fn knx_poll_enabled_default() -> bool { true }
+
+/// Configuration for a group address to be actively polled
+#[derive(Deserialize, Serialize, Clone, ToSchema)]
+pub struct KnxPollGroupConfig {
+    /// Group address to poll (e.g., "1/2/3")
+    pub group_address: String,
+    /// Friendly name for this value
+    pub name: String,
+    /// Datapoint type for parsing the response
+    pub dpt: KnxDatapointType,
+    /// Polling interval in seconds
+    #[serde(default = "knx_poll_interval_default")]
+    pub poll_interval: u64,
+    /// Whether this poll is enabled
+    #[serde(default = "knx_poll_enabled_default")]
+    pub enabled: bool,
+    /// Optional meter name to associate this value with
+    pub meter_name: Option<String>,
+    /// Field name for the value (defaults to name if not set)
+    pub field_name: Option<String>,
+}
 
 #[derive(Deserialize, Serialize, Clone, ToSchema)]
 pub struct KnxAdapterConfig {
@@ -213,16 +264,35 @@ pub struct KnxAdapterConfig {
     pub port: u16,
     #[serde(default="knx_adapter_enabled_default")]
     pub enabled: bool,
-    #[serde(default="knx_adapter_connection_type_default")]
-    pub connection_type: KnxConnectionType, // Connection method
     #[serde(default="knx_adapter_connection_timeout_default")]
     pub connection_timeout: u64,        // Connection timeout in seconds
     #[serde(default="knx_adapter_read_timeout_default")]
     pub read_timeout: u64,              // Read timeout in seconds
+    /// How long to wait after sending read requests before reading cache (default: 3 seconds)
+    pub response_wait: Option<u64>,
     #[serde(default="knx_adapter_meters_default")]
     pub meters: Vec<KnxMeterConfig>,
     #[serde(default="knx_adapter_switches_default")]
     pub switches: Vec<KnxSwitchConfig>,
+    /// Group addresses to actively poll
+    #[serde(default="knx_adapter_poll_groups_default")]
+    pub poll_groups: Vec<KnxPollGroupConfig>,
+}
+
+#[derive(Deserialize, Serialize, Clone, ToSchema)]
+pub struct ZennerDatahubConfig {
+    pub name: String,
+    #[serde(default="mqtt_client_name_default")]
+    pub client_name: String,
+    pub broker_host: String,
+    pub broker_port: u16,
+    #[serde(default="mqtt_client_user_default")]
+    pub broker_user: String,
+    #[serde(default="mqtt_client_pass_default")]
+    pub broker_pass: String,
+    pub update_interval: u64,
+    pub enabled: bool,
+    pub base_topic: String,
 }
 
 fn httpd_default() -> HttpdConfig { return  HttpdConfig{ enabled: httpd_enabled_default(), port: httpd_port_default() }}
@@ -232,6 +302,8 @@ fn tibber_default() -> Vec<TibberConfig> { return Vec::new(); }
 fn oms_default() -> Vec<OmsConfig> { return Vec::new(); }
 fn victron_default() -> Vec<VictronConfig> { return Vec::new(); }
 fn knx_default() -> Vec<KnxAdapterConfig> { return Vec::new(); }
+fn zridh_default() -> Vec<ZennerDatahubConfig> { return Vec::new(); }
+
 #[derive(Deserialize, Serialize, Clone)]
 pub struct Config {
     #[serde(default="httpd_default")]
@@ -249,6 +321,8 @@ pub struct Config {
     pub victron: Vec<VictronConfig>,
     #[serde(default="knx_default")]
     pub knx: Vec<KnxAdapterConfig>,
+    #[serde(default="zridh_default")]
+    pub zenner_datahub: Vec<ZennerDatahubConfig>,
 }
 
 pub struct ConfigHolder {
@@ -267,6 +341,7 @@ pub enum ConfigBases {
     Oms(Vec<OmsConfig>),
     Victron(Vec<VictronConfig>),
     Knx(Vec<KnxAdapterConfig>),
+    ZRIDH(Vec<ZennerDatahubConfig>),
 }
 
 impl ConfigHolder {
@@ -327,7 +402,7 @@ impl ConfigHolder {
     pub fn update_config(&mut self, operation: ConfigOperation, new_data: ConfigBases) {
         // First we need to get a write lock
         //let _lock = self.lock.write().unwrap();
-        let base: &str ;
+        let base: &str;
 
         match new_data {
             ConfigBases::Httpd(httpd_config) => {
@@ -358,6 +433,10 @@ impl ConfigHolder {
                 self.config.knx = knx_configs;
                 base = "knx";
             }
+            ConfigBases::ZRIDH(zridh_config) => {
+                self.config.zenner_datahub = zridh_config;
+                base = "zridh";
+            }
         }
 
         self.dirty = true;
@@ -377,6 +456,7 @@ impl ConfigHolder {
             "oms" => { return Ok(ConfigBases::Oms(self.config.oms.clone())) },
             "victron" => { return Ok(ConfigBases::Victron(self.config.victron.clone())) },
             "knx" => { return Ok(ConfigBases::Knx(self.config.knx.clone())) },
+            "zridh" => { return Ok(ConfigBases::ZRIDH(self.config.zenner_datahub.clone())) },
             _ => { Err("Type not known")? }
         }
     }

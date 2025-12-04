@@ -2,8 +2,6 @@ use crate::mqtt::Transmission;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::broadcast;
 
-
-
 /// DeviceManager handles the storage and configuration
 pub struct DeviceManager {
     sender: Sender<Transmission>,

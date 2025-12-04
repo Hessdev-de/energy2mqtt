@@ -1,9 +1,9 @@
 //! Device Manager library for managing IoT devices
-//! 
+//!
 //! This library provides functionality for storing, retrieving, and configuring
 //! IoT devices with a SQLite-based persistence layer.
 
-pub mod db;
+pub mod device_manager;
 pub mod models;
 pub mod api;
 pub mod mqtt;
@@ -13,11 +13,15 @@ pub mod metering_oms;
 pub mod metering_62056;
 pub mod metering_sml;
 pub mod metering_victron;
+pub mod metering_zennerdatahub;
+pub mod metering_knx;
 pub mod obis_utils;
+pub mod storage;
+pub mod task_monitor;
 
 // Re-export common types for easier access
 pub use models::{Device, DeviceType, DeviceStatus};
-pub use db::DeviceManager;
+pub use device_manager::DeviceManager;
 pub use mqtt::{CALLBACKS, MeteringData};
 pub use metering_modbus::ModbusManger;
 pub use api::ApiManager;
@@ -26,6 +30,10 @@ pub use metering_oms::OmsManager;
 pub use metering_62056::Iec62056Manager;
 pub use metering_sml::SmlManager;
 pub use metering_victron::VictronManager;
+pub use metering_zennerdatahub::ZennerDatahubManager;
+pub use metering_knx::KnxManager;
+pub use storage::StoredData;
+pub use task_monitor::{TaskMonitor, TaskInfo, TaskStatus};
 
 pub fn get_unix_ts() -> u64 {
     return std::time::SystemTime::now().duration_since(std::time::SystemTime::UNIX_EPOCH).unwrap().as_secs();

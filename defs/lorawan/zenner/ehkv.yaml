@@ -1,0 +1,20 @@
+# The sensor joins the network using OTAA
+# The sensor only transmits the current co2 level
+
+manufacturer: ZENNER International GmbH & Co. KG
+model: Electronic Heat Cost Allocator
+
+aliases:
+  - !DevEUI ^04B648FD([0-9A-F]){8}$
+
+data_fields:
+  - name: value_unrated
+    friendly_name: Unrated Units
+
+timings:
+  # Values of EHKVs will be accepted if they are newer than 24 hours
+  max_eventtime: 86400
+
+options:
+  has_gps: False
+  ignore_generated_values: True

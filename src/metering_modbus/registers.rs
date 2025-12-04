@@ -15,7 +15,13 @@ pub enum ModbusRegisterType {
 #[derive(Clone, PartialEq, Deserialize)]
 pub enum ModbusRegisterFormat {
     Int16,
-    Int32
+    Int32,
+    UInt16,
+    UInt32,
+    Float32,
+    String,
+    /// SunSpec scale factor - int16 used as power of 10 exponent
+    SunSSF,
 }
 
 #[derive(Clone, PartialEq, Deserialize)]
@@ -40,6 +46,10 @@ pub struct ModbusRegister {
     pub format: ModbusRegisterFormat,
     #[serde(default="default_scaler")]
     pub scaler: f32,
+    /// Reference to a SunSpec scale factor register name (e.g., "A_SF")
+    /// The value from that register will be used as 10^x multiplier
+    #[serde(default)]
+    pub scale_factor: Option<String>,
     #[serde(default="default_none_str")]
     pub unit_of_measurement: String,
     #[serde(default="default_none_str")]
@@ -113,23 +123,39 @@ fn parse_registers(file: &mut File)  -> (Vec<Register>, String, String) {
 }
 
 pub fn get_registers(model: &String) -> (Vec<Register>, String, String) {
+    // Model can include subdirectory path, e.g., "sunspec/sunspec_inverter_3p"
+    // Search order:
+    // 1. config/modbus/{model}.yaml (user override)
+    // 2. defs/modbus/{model}.yaml (built-in)
 
-    /* user specified definitions are used first */
-    let filename = format!("config/modbus/{}.yaml", model);
-    let mut file = File::open(filename);
-    if file.is_err() {
-        let filename = format!("defs/modbus/{}.yaml", model);
-        file = File::open(filename);
-        if file.is_err() {
-            error!("Meter definition of {model} not found");
-            return (Vec::new(), "".to_string(), "".to_string());
-        } else {
-            info!("Loading definition of {model}");
+    let search_paths = [
+        format!("config/modbus/{}.yaml", model),
+        format!("defs/modbus/{}.yaml", model),
+    ];
+
+    let mut file = None;
+    let mut used_path = String::new();
+
+    for path in &search_paths {
+        if let Ok(f) = File::open(path) {
+            file = Some(f);
+            used_path = path.clone();
+            break;
         }
-    } else {
-        info!("Using user provided definition of {model}");
     }
 
-    let mut file = file.unwrap();
-    return parse_registers(&mut file);
+    match file {
+        Some(mut f) => {
+            if used_path.starts_with("config/") {
+                info!("Using user provided definition of {model} from {used_path}");
+            } else {
+                info!("Loading definition of {model} from {used_path}");
+            }
+            parse_registers(&mut f)
+        }
+        None => {
+            error!("Meter definition of {model} not found in any of: {:?}", search_paths);
+            (Vec::new(), "".to_string(), "".to_string())
+        }
+    }
 }

@@ -1,0 +1,76 @@
+
+manufacturer: ZENNER International GmbH & Co. KG
+model: Smoke Detector
+
+aliases:
+  - !DevEUI ^04B6480B([0-9A-F]){8}$
+
+# The smoke detector only exports flags which are binary_sensors
+# Those can be used to build automations in Home Assistant and so on
+# we ignore channel0
+data_fields:
+  - name: flag_error_led_failure
+    friendly_name: LED Error
+    platform: binary_sensor
+    device_class: safety
+
+  - name: flag_error_test_button_failure
+    friendly_name: Test Button Error
+    platform: binary_sensor
+    device_class: safety
+
+  - name: flag_warning_obstruction_detection
+    friendly_name: Obstruction Warning
+    platform: binary_sensor
+    device_class: safety
+
+  - name: flag_warning_battery_end_date_reached
+    friendly_name: Battery EoL
+    platform: binary_sensor
+    device_class: battery
+
+  - name: flag_error_battery_low
+    friendly_name: Battery low
+    platform: binary_sensor
+    device_class: battery 
+
+  - name: flag_error_acoustic_alarm_failure
+    friendly_name: Alarm Failed
+    platform: binary_sensor
+    device_class: sound
+
+  - name: flag_warning_smoke_chamber_pollution
+    friendly_name: Smoke Chamber Warning
+    platform: binary_sensor
+    device_class: safety
+
+  - name: flag_error_smoke_chamber_pollution
+    friendly_name: Smoke Chamber Error
+    platform: binary_sensor
+    device_class: problem
+
+  - name: flag_warning_test_alarm
+    friendly_name: Test Alarm
+    platform: binary_sensor
+    device_class: smoke   
+
+  - name: flag_warning_smoke_alarm
+    friendly_name: Smoke Alarm
+    platform: binary_sensor
+    device_class: smoke
+
+  - name: flag_warning_surrounding_area_monitoring
+    friendly_name: Surrounding Area Warning
+    platform: binary_sensor
+    device_class: problem
+
+  - name: flag_warning_removal_detection
+    friendly_name: Removal Detection
+    platform: binary_sensor
+    device_class: tamper
+
+timings:
+  max_eventtime: 86400
+
+options:
+  merge_old_data: True

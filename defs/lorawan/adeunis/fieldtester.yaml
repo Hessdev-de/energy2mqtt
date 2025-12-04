@@ -1,0 +1,69 @@
+
+# The sensor joins the network using OTAA
+# The sensor only transmits the current co2 level
+
+manufacturer: Adeunis
+model: Field Test Device
+support_url: https://www.adeunis.com/en/field-test-device-iot/
+
+aliases:
+  - !DevEUI ^0018B2([0-9A-F]){10}$
+
+data_fields:
+  - name: battery_level
+    friendly_name: Battery Level
+    state_class: measurement
+    device_class: battery
+    unit_of_measurement: "%"
+
+  - name: dl_counter
+    friendly_name: Nr of downlinks received
+    state_class: measurement
+
+  - name: ul_counter
+    friendly_name: Nr of uplinks sent
+    state_class: measurement
+
+  - name: rssi_dl
+    friendly_name: Downlink level (RSSI)
+    state_class: measurement
+    device_class: signal_strength
+    unit_of_measurement: dBm
+
+  - name: snr_dl
+    friendly_name: Downlink level (SNR)
+    state_class: measurement
+    device_class: signal_strength
+    unit_of_measurement: dB
+  
+  - name: temperature
+    friendly_name: Temperature
+    state_class: measurement
+    device_class: temperature
+    unit_of_measurement: °C
+
+  - name: sats
+    friendly_name: Number of satellites
+
+options:
+  has_gps: True
+
+# Example value on MQTT: 
+#{
+#  "battery_level": 106,
+#  "devaddr": "74FF2028",               // Filtered
+#  "dl_counter": 47,                    // Exported
+#  "gps_quality": "Poor",               // Filtered
+#  "hdop": 3,                           // Filtered
+#  "lati_hemisphere": "North",          // Filtered
+#  "latitude": 47.775416666666665,      // Filtered
+#  "latitude_dmm": "N 47°46.525",       // Filtered
+#  "long_hemisphere": "East",           // Filtered
+#  "longitude": 9.187,                  // Filtered
+#  "longitude_dmm": "E 009°11.22",      // Filtered
+#  "payload": "9F1447465250009112203C762F0E6A6801", // Filtered
+#  "rssi": -94,                         // Exported as rssi_dl
+#  "sats": 12,                          // Exported
+#  "temperature": 20,                   // Exported
+#  "ul_counter": 118                    // Exported
+#}

@@ -1,0 +1,22 @@
+manufacturer: Milesight
+model: WS202
+
+# TODO: Only one sensor by now!
+aliases:
+  - !ProductId "milesight.wt202"
+
+data_fields:
+  - name: battery
+    friendly_name: Battery
+    unit_of_measurement: "%"
+    device_class: battery
+
+  - name: daylight
+    friendly_name: Light
+    platform: binary_sensor
+    device_class: light
+  
+  - name: occupied
+    friendly_name: occupancy
+    platform: binary_sensor
+    device_class: occupancy

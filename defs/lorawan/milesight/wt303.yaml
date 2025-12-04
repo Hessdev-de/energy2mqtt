@@ -1,0 +1,101 @@
+manufacturer: Milesight
+model: WT303
+
+# TODO: Only one sensor by now!
+aliases:
+  - !ProductId "milesight.wt303"
+
+data_fields:
+
+  - name: temperature
+    friendly_name: Temperature
+    unit_of_measurement: °C
+    device_class: temperature
+
+  - name: target_temperature
+    friendly_name: Target Temperature
+    unit_of_measurement: °C
+    device_class: temperature
+
+  - name: humidity
+    friendly_name: Humidity
+    unit_of_measurement: "%"
+    device_class: humidity
+    suggested_display_precision: 2
+  
+  - name: plan_id
+    map_key: plan
+    friendly_name: Planned Mode
+    platform: binary_sensor
+    device_class: running
+    value_template: "{% if ## == \"no_plan\" %}OFF{% else %}ON{% endif %}"
+  
+  - name: system_status
+    friendly_name: System Status
+    platform: binary_sensor
+    device_class: plug
+    payload_on: "on"
+    payload_off: "off"
+
+  # This is a definition of the fan running
+  - name: fan_status
+    friendly_name: Fan
+    platform: fan
+    state_value_template: "{% if value_json.fan_status == \"OFF\" %}OFF{% else %}ON{% endif %}"
+    oscillation_value_template: "{% if value_json.fan_status == \"OFF\" %}OFF{% else %}ON{% endif %}"
+    preset_mode_key: fan_mode
+    modes:
+      - auto
+      - low
+      - medium
+      - high
+
+  - name: climate_control
+    platform: climate
+    friendly_name: Climate Control
+
+    e2m_extra_keys:
+      - temperature
+      - humidity
+      - fan_mode
+      - fan_status
+      - temperature_control_mode
+      - target_temperature
+
+    # our current temperature
+    # Hint: current_temperature_topic will be set to our main topic
+    temperature_command_topic: set_temp
+    current_temperature_template: "{{ value_json.temperature }}"
+
+    # The target temperature
+    # Hint temperature_state_topic will be set to our main topic
+    temperature_state_template: "{{ value_json.target_temperature }}"    
+    # The Current humidity
+    # Hint: current_humidity_topic will be set to our main topic
+    current_humidity_template: "{{ value_json.humidity }}"
+
+    # The fan part of the climate
+    # Hint: fan_mode_state_topic will be set to our main topic
+    fan_mode_command_topic: preset_mode_command
+    fan_mode_state_template: "{{ value_json.fan_mode }}"
+    fan_modes:
+      - auto
+      - low
+      - medium
+      - high
+
+    # mode_state_topic will be set to our main topic
+    mode_command_topic: set_mode
+    mode_state_template: "{% if value_json.temperature_control_mode == \"cooling\" %}cool{% elif value_json.temperature_control_mode == \"heating\" %}heat{% else %}fan_only{% endif %}"
+    modes:
+      - fan_only
+      - heat
+      - cool
+
+    # Some values for the UI
+    min_temp: 5
+    max_temp: 35
+    min_humidity: 30
+    max_humidity: 90
+
+    temp_step: 0.5

@@ -1,13 +1,15 @@
 pub mod internal_commands;
 pub mod ha_interface;
+pub mod home_assistant;
 
 use std::collections::HashMap;
 use lazy_static::lazy_static;
 use tokio::sync::RwLock;
 use std::io::Error;
 use crate::mqtt::ha_interface::HaDiscover;
+use crate::mqtt::home_assistant::{HaSensor, HaToJSON};
 use crate::{config::ConfigBases, models::DeviceProtocol};
-use crate::{get_config_or_panic, CONFIG};
+use crate::{CONFIG, get_config_or_panic, get_unix_ts};
 use log::{debug, error, info};
 use tokio::sync::mpsc::{Receiver, Sender};
 use serde::{Serialize, Deserialize};
@@ -82,21 +84,24 @@ pub struct MeteringData {
     pub transmission_time: u64,
     pub transmission_type: TranmissionValueType,
     pub metered_time: u64,
-    pub metered_values: serde_json::Map<String, serde_json::Value>
+    pub metered_values: serde_json::Map<String, serde_json::Value>,
+    pub state_topic_base: String,
 }
 
 impl MeteringData {
     pub fn new() -> Result<Self, Error> {
-        return Ok(MeteringData {
+        let now = get_unix_ts();
+        Ok(MeteringData {
             id: "".to_string(),
             tenant: "".to_string(),
             meter_name: "".to_string(),
             protocol: DeviceProtocol::Unknown, 
-            transmission_time: 0,
+            transmission_time: now,
             transmission_type: TranmissionValueType::Now,
-            metered_time: 0, 
-            metered_values: serde_json::Map::new() 
-        });
+            metered_time: now, 
+            metered_values: serde_json::Map::new(),
+            state_topic_base: "".to_string(),
+        })
     }
 }
 
@@ -116,15 +121,25 @@ pub struct PublishData {
 
 pub struct SubscribeData {
     pub topic: String,
-    pub sender: tokio::sync::mpsc::Sender<String>
+    pub sender: tokio::sync::mpsc::Sender<(String, String)>
+}
+
+pub struct TaskCrashData {
+    pub manager: String,
+    pub task_name: String,
+    pub task_type: String,
+    pub message: String,
+    pub restart_count: u32,
 }
 
 pub enum Transmission {
     Metering(MeteringData),
     AutoDiscovery(HaDiscover),
+    AutoDiscovery2(HaSensor),
     Command(CommandData),
     Subscribe(SubscribeData),
-    Publish(PublishData)
+    Publish(PublishData),
+    TaskCrash(TaskCrashData),
 }
 
 pub struct MqttManager {
@@ -134,7 +149,7 @@ pub struct MqttManager {
 }
 
 pub struct Callbacks {
-    calls: HashMap<String, Vec<tokio::sync::mpsc::Sender<String>>>,
+    calls: HashMap<String, tokio::sync::mpsc::Sender<(String, String)>>,
 }
 
 impl Callbacks {
@@ -142,15 +157,14 @@ impl Callbacks {
         return Callbacks { calls: HashMap::new() };
     }
 
-    pub fn insert(&mut self, topic: String, callback: tokio::sync::mpsc::Sender<String>) {
+    pub fn insert(&mut self, topic: String, callback: tokio::sync::mpsc::Sender<(String, String)>) {
         if !self.calls.contains_key(&topic) {
             debug!("Adding new vector to topic {topic}");
-            self.calls.insert(topic, vec![callback]);
         } else {
-            debug!("Adding a new element to known vector at topic {topic}");
-            let v = self.calls.get_mut(&topic).unwrap();
-            v.push(callback);
+            debug!("Replacing known callback at topic {topic}");
         }
+
+        self.calls.insert(topic, callback);
     }
 
     pub async fn send(&self, topic: String, payload: String) {
@@ -159,11 +173,9 @@ impl Callbacks {
             return;
         }
 
-        let v = self.calls.get(&topic).unwrap();
-        for call in v {
-            debug!("Sending to callback: {payload}");
-            let _ = call.send(payload.clone()).await.unwrap();
-        }
+        let call = self.calls.get(&topic).unwrap();
+        debug!("Sending to callback: {payload}");
+        let _ = call.send((topic.clone(), payload.clone())).await.unwrap();
     }
 
     pub async fn get_topics(&self) -> Vec<String> {
@@ -250,55 +262,96 @@ impl MqttManager {
             
             match option.unwrap() {
                 Transmission::Metering(data) => {
-                                info!("Metering data received: {}", data.id);
-                                match self.client.publish("energy2mqtt/raw", QoS::AtLeastOnce, false, serde_json::to_string(&data).unwrap()).await {
-                                    Err(e) => { error!("Error sending: {}", e); },
-                                    Ok(_) => { 
-                                        debug!("Send successfully");
-                                        // Update health status
-                                        tokio::spawn(async {
-                                            let mut app_status = APP_STATUS.write().await;
-                                            app_status.mqtt_health.last_message_sent = Some(Instant::now());
-                                        });
-                                    }
-                                }
-        
-                                let _ = broadcast.send(serde_json::to_string_pretty(&data).unwrap());
-                                let _ = self.client.publish(format!("energy2mqtt/devs/{:?}/{}", data.protocol, data.meter_name),
-                                                            QoS::AtLeastOnce,
-                                                            false,
-                                                            serde_json::to_string(&data.metered_values.clone()).unwrap()).await;
+                    info!("Metering data received: {}", data.id);
+                    match self.client.publish("energy2mqtt/raw", QoS::AtLeastOnce, false, serde_json::to_string(&data).unwrap()).await {
+                        Err(e) => { error!("Error sending: {}", e); },
+                        Ok(_) => { 
+                            debug!("Send successfully");
+                            // Update health status
+                            tokio::spawn(async {
+                                let mut app_status = APP_STATUS.write().await;
+                                app_status.mqtt_health.last_message_sent = Some(Instant::now());
+                            });
+                        }
+                    }
 
-                            },
+                    let _ = broadcast.send(serde_json::to_string_pretty(&data).unwrap());
+                    let mut proto_path = data.protocol.to_string();
+                    if !data.state_topic_base.is_empty() {
+                        proto_path = data.state_topic_base.clone();
+                    }
+
+                    let _ = self.client.publish(format!("energy2mqtt/devs/{}/{}", proto_path, data.meter_name),
+                                                QoS::AtLeastOnce,
+                                                false,
+                                                serde_json::to_string(&data.metered_values.clone()).unwrap()).await;
+
+                },
                 Transmission::Command(command) => {
-                                let _ = self.client.publish(command.topic, QoS::AtLeastOnce, command.retain, command.value).await;
-                            }
+                    let _ = self.client.publish(command.topic, QoS::AtLeastOnce, command.retain, command.value).await;
+                },
                 Transmission::AutoDiscovery(disc) => {
-                                let _ = self.client.publish(disc.discover_topic.clone(),QoS::AtLeastOnce, true, serde_json::to_string(&disc).unwrap()).await;
-                            }
+                    let _ = self.client.publish(disc.discover_topic.clone(),QoS::AtLeastOnce, true, serde_json::to_string(&disc).unwrap()).await;
+                },
+                Transmission::AutoDiscovery2(disc) => {
+                    let topic = disc.get_disc_topic();
+                    let _ = self.client.publish(topic, QoS::AtLeastOnce, true, serde_json::to_string(&disc.to_json()).unwrap()).await;
+                },
                 Transmission::Subscribe(subscribe_data) =>  {
-                                let topic = format!("energy2mqtt/{}", subscribe_data.topic);
-                                if self.client.subscribe(topic.clone(), QoS::AtLeastOnce).await.is_ok() {
-                                    CALLBACKS.write().await.insert(topic.clone(), subscribe_data.sender);
-                                    info!("Registered Callback {topic}");
-                                }
-                            },
+                    let mut topic = subscribe_data.topic.clone();
+                    if !topic.starts_with("energy2mqtt/") && !topic.starts_with("homeassistant/") {
+                        topic = format!("energy2mqtt/{}", subscribe_data.topic);
+                    }
+
+                    if self.client.subscribe(topic.clone(), QoS::AtLeastOnce).await.is_ok() {
+                        CALLBACKS.write().await.insert(topic.clone(), subscribe_data.sender);
+                        info!("Registered Callback {topic}");
+                    }
+                },
                 Transmission::Publish(publish_data) => {
-                                match self.client.publish(
-                                    publish_data.topic,
-                                    match publish_data.qos {
-                                        0 => QoS::AtMostOnce,
-                                        1 => QoS::AtLeastOnce,
-                                        2 => QoS::ExactlyOnce,
-                                        _ => QoS::AtMostOnce,
-                                    },
-                                    publish_data.retain,
-                                    publish_data.payload
-                                ).await {
-                                    Err(e) => { error!("Error publishing: {}", e); },
-                                    Ok(_) => { debug!("Published successfully"); }
-                                }
-                            },
+                    match self.client.publish(
+                        publish_data.topic,
+                        match publish_data.qos {
+                            0 => QoS::AtMostOnce,
+                            1 => QoS::AtLeastOnce,
+                            2 => QoS::ExactlyOnce,
+                            _ => QoS::AtMostOnce,
+                        },
+                        publish_data.retain,
+                        publish_data.payload
+                    ).await {
+                        Err(e) => { error!("Error publishing: {}", e); },
+                        Ok(_) => { debug!("Published successfully"); }
+                    }
+                },
+                Transmission::TaskCrash(data) => {
+                    error!("TASK CRASH NOTIFICATION: [{}] {} ({}) - {}", data.manager, data.task_name, data.task_type, data.message);
+
+                    // Publish crash notification to MQTT for external monitoring
+                    let crash_payload = serde_json::json!({
+                        "manager": data.manager,
+                        "task_name": data.task_name,
+                        "task_type": data.task_type,
+                        "message": data.message,
+                        "restart_count": data.restart_count,
+                        "timestamp": get_unix_ts(),
+                    });
+
+                    let _ = self.client.publish(
+                        format!("energy2mqtt/mgt/task_crash/{}/{}", data.manager, data.task_name),
+                        QoS::AtLeastOnce,
+                        false,
+                        crash_payload.to_string()
+                    ).await;
+
+                    // Also publish to a general crash topic for easy monitoring
+                    let _ = self.client.publish(
+                        "energy2mqtt/mgt/crashes",
+                        QoS::AtLeastOnce,
+                        false,
+                        crash_payload.to_string()
+                    ).await;
+                },
             };
         }
 
