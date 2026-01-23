@@ -39,7 +39,13 @@ impl OmsManager {
         let _ = self.sender.send(register).await;
 
         info!("Starting OMS waiting for messages");
-        while let Some((_topic, message)) = receiver.recv().await {
+        while let Some((_topic, mut message)) = receiver.recv().await {
+            let mut crc = true;
+            if message.starts_with('!') {
+                message.remove(0);
+                crc = false;
+            }
+
             let dec =  hex::decode(message);
             if dec.is_err() {
                 error!("Non hex string received");
@@ -47,7 +53,8 @@ impl OmsManager {
             }
 
             let dec = dec.unwrap();
-            let dec = parse_oms_telegram(&dec, true);
+
+            let dec = parse_oms_telegram(&dec, crc);
             match dec {
                 Ok(doc) => { let _ = self.sender.send(Transmission::Metering(doc)).await; },
                 Err(e) => { error!("OMS telegram can not be parsed: {e:?}"); },
