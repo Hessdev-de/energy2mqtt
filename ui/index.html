@@ -1,0 +1,1132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Energy2MQTT</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
+</head>
+<body>
+    <!-- Setup Wizard Overlay -->
+    <div class="setup-wizard-overlay hidden" id="setupWizard">
+        <div class="setup-wizard">
+            <div class="setup-wizard-header">
+                <span class="material-icons setup-logo">bolt</span>
+                <h1>Welcome to Energy2MQTT</h1>
+                <p class="setup-subtitle">Let's get you connected</p>
+            </div>
+
+            <!-- Step 1: Welcome -->
+            <div class="setup-step active" id="setupStep1">
+                <div class="setup-content">
+                    <div class="setup-welcome-icon">
+                        <span class="material-icons">settings_suggest</span>
+                    </div>
+                    <h2>Initial Setup Required</h2>
+                    <p>Energy2MQTT needs to connect to your MQTT broker to function. This wizard will help you configure the connection.</p>
+
+                    <div class="setup-info-box">
+                        <span class="material-icons">info</span>
+                        <div>
+                            <strong>Home Assistant Users</strong>
+                            <p>If you're running as a Home Assistant add-on, MQTT should be configured automatically. If you see this screen, automatic discovery may have failed.</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="setup-actions">
+                    <button class="filled-button" onclick="setupWizard.nextStep()">
+                        <span>Get Started</span>
+                        <span class="material-icons">arrow_forward</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Step 2: MQTT Configuration -->
+            <div class="setup-step" id="setupStep2">
+                <div class="setup-content">
+                    <h2>MQTT Broker Configuration</h2>
+                    <p>Enter your MQTT broker connection details.</p>
+
+                    <form id="setupMqttForm" class="setup-form">
+                        <div class="form-group">
+                            <label for="setupMqttHost">Broker Host *</label>
+                            <input type="text" id="setupMqttHost" required placeholder="e.g., 192.168.1.100 or mqtt.local">
+                            <span class="form-hint">IP address or hostname of your MQTT broker</span>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="setupMqttPort">Port *</label>
+                                <input type="number" id="setupMqttPort" required value="1883" min="1" max="65535">
+                            </div>
+                            <div class="form-group">
+                                <label for="setupMqttClientName">Client Name</label>
+                                <input type="text" id="setupMqttClientName" value="energy2mqtt" placeholder="energy2mqtt">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="setupMqttUser">Username</label>
+                                <input type="text" id="setupMqttUser" placeholder="Leave empty if not required">
+                            </div>
+                            <div class="form-group">
+                                <label for="setupMqttPass">Password</label>
+                                <input type="password" id="setupMqttPass" placeholder="Leave empty if not required">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="switch-label">
+                                <span>Enable Home Assistant Discovery</span>
+                                <input type="checkbox" id="setupMqttHaEnabled" checked>
+                                <span class="switch"></span>
+                            </label>
+                            <span class="form-hint">Automatically create entities in Home Assistant</span>
+                        </div>
+                    </form>
+                </div>
+                <div class="setup-actions">
+                    <button class="text-button" onclick="setupWizard.prevStep()">
+                        <span class="material-icons">arrow_back</span>
+                        <span>Back</span>
+                    </button>
+                    <button class="outlined-button" id="setupTestBtn" onclick="setupWizard.testConnection()">
+                        <span class="material-icons">wifi_tethering</span>
+                        <span>Test Connection</span>
+                    </button>
+                    <button class="filled-button" onclick="setupWizard.nextStep()">
+                        <span>Continue</span>
+                        <span class="material-icons">arrow_forward</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Step 3: Test & Save -->
+            <div class="setup-step" id="setupStep3">
+                <div class="setup-content">
+                    <h2>Ready to Connect</h2>
+                    <p>Review your settings and save the configuration.</p>
+
+                    <div class="setup-review">
+                        <div class="review-item">
+                            <span class="review-label">Broker</span>
+                            <span class="review-value" id="reviewHost">-</span>
+                        </div>
+                        <div class="review-item">
+                            <span class="review-label">Port</span>
+                            <span class="review-value" id="reviewPort">-</span>
+                        </div>
+                        <div class="review-item">
+                            <span class="review-label">Username</span>
+                            <span class="review-value" id="reviewUser">-</span>
+                        </div>
+                        <div class="review-item">
+                            <span class="review-label">Home Assistant</span>
+                            <span class="review-value" id="reviewHa">-</span>
+                        </div>
+                    </div>
+
+                    <div class="setup-test-result" id="setupTestResult">
+                        <span class="material-icons test-icon">help_outline</span>
+                        <span class="test-message">Connection not tested yet</span>
+                    </div>
+                </div>
+                <div class="setup-actions">
+                    <button class="text-button" onclick="setupWizard.prevStep()">
+                        <span class="material-icons">arrow_back</span>
+                        <span>Back</span>
+                    </button>
+                    <button class="outlined-button" onclick="setupWizard.testConnection()">
+                        <span class="material-icons">wifi_tethering</span>
+                        <span>Test Connection</span>
+                    </button>
+                    <button class="filled-button" id="setupSaveBtn" onclick="setupWizard.saveConfig()">
+                        <span class="material-icons">save</span>
+                        <span>Save & Finish</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Step 4: Complete -->
+            <div class="setup-step" id="setupStep4">
+                <div class="setup-content setup-complete">
+                    <div class="setup-success-icon">
+                        <span class="material-icons">check_circle</span>
+                    </div>
+                    <h2>Setup Complete!</h2>
+                    <p>Your configuration has been saved. Energy2MQTT needs to restart to apply the changes.</p>
+
+                    <div class="setup-info-box warning">
+                        <span class="material-icons">warning</span>
+                        <div>
+                            <strong>Restart Required</strong>
+                            <p>Please restart Energy2MQTT to connect to your MQTT broker with the new settings.</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="setup-actions">
+                    <button class="filled-button" onclick="setupWizard.finish()">
+                        <span class="material-icons">check</span>
+                        <span>Got it</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Progress indicator -->
+            <div class="setup-progress">
+                <div class="progress-step active" data-step="1">
+                    <span class="progress-dot"></span>
+                    <span class="progress-label">Welcome</span>
+                </div>
+                <div class="progress-line"></div>
+                <div class="progress-step" data-step="2">
+                    <span class="progress-dot"></span>
+                    <span class="progress-label">Configure</span>
+                </div>
+                <div class="progress-line"></div>
+                <div class="progress-step" data-step="3">
+                    <span class="progress-dot"></span>
+                    <span class="progress-label">Review</span>
+                </div>
+                <div class="progress-line"></div>
+                <div class="progress-step" data-step="4">
+                    <span class="progress-dot"></span>
+                    <span class="progress-label">Done</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <span class="material-icons logo-icon">bolt</span>
+                <h1>Energy2MQTT</h1>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="#" class="nav-item active" data-page="overview">
+                    <span class="material-icons">dashboard</span>
+                    <span>Overview</span>
+                </a>
+                <a href="#" class="nav-item" data-page="modbus">
+                    <span class="material-icons">settings_input_component</span>
+                    <span>Modbus</span>
+                </a>
+                <a href="#" class="nav-item" data-page="knx">
+                    <span class="material-icons">device_hub</span>
+                    <span>KNX</span>
+                </a>
+                <a href="#" class="nav-item" data-page="zenner">
+                    <span class="material-icons">water_drop</span>
+                    <span>Zenner Datahub</span>
+                </a>
+                <a href="#" class="nav-item" data-page="oms">
+                    <span class="material-icons">sensors</span>
+                    <span>OMS Meters</span>
+                </a>
+                <a href="#" class="nav-item" data-page="mqtt">
+                    <span class="material-icons">cloud</span>
+                    <span>MQTT</span>
+                </a>
+                <a href="#" class="nav-item" data-page="live">
+                    <span class="material-icons">stream</span>
+                    <span>Live View</span>
+                </a>
+                <div class="nav-divider"></div>
+                <a href="#" class="nav-item" data-page="settings">
+                    <span class="material-icons">settings</span>
+                    <span>Settings</span>
+                </a>
+            </nav>
+            <div class="sidebar-footer">
+                <div class="connection-status" id="connectionStatus">
+                    <span class="status-dot"></span>
+                    <span class="status-text">Connecting...</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="top-bar">
+                <button class="menu-toggle" id="menuToggle">
+                    <span class="material-icons">menu</span>
+                </button>
+                <h2 class="page-title" id="pageTitle">Overview</h2>
+                <div class="unsaved-indicator hidden" id="unsavedIndicator" title="Configuration has unsaved changes">
+                    <span class="material-icons">warning</span>
+                    <span class="unsaved-text">Unsaved Changes</span>
+                    <button class="save-now-btn" id="saveNowBtn" title="Save configuration now">
+                        <span class="material-icons">save</span>
+                    </button>
+                </div>
+                <div class="top-bar-actions">
+                    <button class="icon-button" id="refreshBtn" title="Refresh">
+                        <span class="material-icons">refresh</span>
+                    </button>
+                </div>
+            </header>
+
+            <div class="content-area" id="contentArea">
+                <!-- Overview Page -->
+                <div class="page active" id="page-overview">
+                    <div class="cards-grid">
+                        <div class="card status-card">
+                            <div class="card-header">
+                                <span class="material-icons">favorite</span>
+                                <h3>System Status</h3>
+                            </div>
+                            <div class="card-content">
+                                <div class="status-row">
+                                    <span>MQTT Connection</span>
+                                    <span class="badge" id="mqttStatus">Unknown</span>
+                                </div>
+                                <div class="status-row">
+                                    <span>Uptime</span>
+                                    <span id="uptime">--</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-header">
+                                <span class="material-icons">settings_input_component</span>
+                                <h3>Modbus</h3>
+                            </div>
+                            <div class="card-content">
+                                <div class="stat-value" id="modbusHubCount">0</div>
+                                <div class="stat-label">Configured Hubs</div>
+                            </div>
+                            <div class="card-actions">
+                                <button class="text-button" data-page="modbus">Manage</button>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-header">
+                                <span class="material-icons">device_hub</span>
+                                <h3>KNX</h3>
+                            </div>
+                            <div class="card-content">
+                                <div class="stat-value" id="knxAdapterCount">0</div>
+                                <div class="stat-label">Configured Adapters</div>
+                            </div>
+                            <div class="card-actions">
+                                <button class="text-button" data-page="knx">Manage</button>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-header">
+                                <span class="material-icons">water_drop</span>
+                                <h3>Zenner Datahub</h3>
+                            </div>
+                            <div class="card-content">
+                                <div class="stat-value" id="zennerInstanceCount">0</div>
+                                <div class="stat-label">Configured Instances</div>
+                            </div>
+                            <div class="card-actions">
+                                <button class="text-button" data-page="zenner">Manage</button>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-header">
+                                <span class="material-icons">sensors</span>
+                                <h3>OMS Meters</h3>
+                            </div>
+                            <div class="card-content">
+                                <div class="stat-value" id="omsMeterCount">0</div>
+                                <div class="stat-label">Configured Meters</div>
+                            </div>
+                            <div class="card-actions">
+                                <button class="text-button" data-page="oms">Manage</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Modbus Page -->
+                <div class="page" id="page-modbus">
+                    <div class="page-header">
+                        <h3>Modbus Hubs</h3>
+                        <button class="fab" id="addModbusHub">
+                            <span class="material-icons">add</span>
+                            <span>Add Hub</span>
+                        </button>
+                    </div>
+                    <div class="cards-list" id="modbusHubsList">
+                        <!-- Modbus hubs will be rendered here -->
+                    </div>
+                </div>
+
+                <!-- KNX Page -->
+                <div class="page" id="page-knx">
+                    <div class="page-header">
+                        <h3>KNX Adapters</h3>
+                        <button class="fab" id="addKnxAdapter">
+                            <span class="material-icons">add</span>
+                            <span>Add Adapter</span>
+                        </button>
+                    </div>
+                    <div class="cards-list" id="knxAdaptersList">
+                        <!-- KNX adapters will be rendered here -->
+                    </div>
+                </div>
+
+                <!-- Zenner Datahub Page -->
+                <div class="page" id="page-zenner">
+                    <div class="page-header">
+                        <h3>Zenner Datahub Instances</h3>
+                        <button class="fab" id="addZennerInstance">
+                            <span class="material-icons">add</span>
+                            <span>Add Instance</span>
+                        </button>
+                    </div>
+                    <div class="cards-list" id="zennerInstancesList">
+                        <!-- Zenner Datahub instances will be rendered here -->
+                    </div>
+                </div>
+
+                <!-- OMS Page -->
+                <div class="page" id="page-oms">
+                    <div class="page-header">
+                        <h3>OMS Meters</h3>
+                        <button class="fab" id="addOmsMeter">
+                            <span class="material-icons">add</span>
+                            <span>Add Meter</span>
+                        </button>
+                    </div>
+                    <div class="info-banner">
+                        <span class="material-icons">info</span>
+                        <div>
+                            <strong>Open Metering System (OMS)</strong>
+                            <p>OMS meters communicate via wireless M-Bus. Configure meters with their DIN address (device identifier) and AES-128 encryption key to receive data via the <code>oms_input</code> MQTT topic.</p>
+                        </div>
+                    </div>
+                    <div class="cards-list" id="omsMetersList">
+                        <!-- OMS meters will be rendered here -->
+                    </div>
+                </div>
+
+                <!-- MQTT Page -->
+                <div class="page" id="page-mqtt">
+                    <div class="card">
+                        <div class="card-header">
+                            <span class="material-icons">cloud</span>
+                            <h3>MQTT Configuration</h3>
+                        </div>
+                        <div class="card-content">
+                            <div class="form-group">
+                                <label>Host</label>
+                                <input type="text" id="mqttHost" readonly>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Port</label>
+                                    <input type="number" id="mqttPort" readonly>
+                                </div>
+                                <div class="form-group">
+                                    <label>User</label>
+                                    <input type="text" id="mqttUser" readonly>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label class="switch-label">
+                                    <span>Home Assistant Discovery</span>
+                                    <input type="checkbox" id="mqttHaEnabled" disabled>
+                                    <span class="switch"></span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Live View Page -->
+                <div class="page" id="page-live">
+                    <div class="live-view-container">
+                        <div class="live-view-toolbar">
+                            <div class="live-view-filters">
+                                <label class="filter-chip">
+                                    <input type="checkbox" id="filterOutgoing" checked>
+                                    <span class="material-icons">arrow_upward</span>
+                                    Outgoing
+                                </label>
+                                <label class="filter-chip">
+                                    <input type="checkbox" id="filterIncoming" checked>
+                                    <span class="material-icons">arrow_downward</span>
+                                    Incoming
+                                </label>
+                                <label class="filter-chip">
+                                    <input type="checkbox" id="filterMetering" checked>
+                                    <span>Metering</span>
+                                </label>
+                                <label class="filter-chip">
+                                    <input type="checkbox" id="filterDiscovery" checked>
+                                    <span>Discovery</span>
+                                </label>
+                                <label class="filter-chip">
+                                    <input type="checkbox" id="filterCommands" checked>
+                                    <span>Commands</span>
+                                </label>
+                            </div>
+                            <div class="live-view-right">
+                                <span class="live-stat" id="liveMessageCount">0 messages</span>
+                                <span class="live-indicator" id="liveIndicator">
+                                    <span class="material-icons live-spinner">sync</span>
+                                    <span class="live-text">Waiting</span>
+                                </span>
+                                <button class="icon-button" id="liveTogglePause" title="Pause/Resume">
+                                    <span class="material-icons">pause</span>
+                                </button>
+                                <button class="icon-button" id="liveClear" title="Clear Messages">
+                                    <span class="material-icons">delete_sweep</span>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="live-view-messages" id="liveMessages">
+                            <div class="live-view-empty">
+                                <span class="material-icons">stream</span>
+                                <p>Waiting for MQTT traffic...</p>
+                                <p class="hint">Messages will appear here in real-time</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Settings Page -->
+                <div class="page" id="page-settings">
+                    <div class="card">
+                        <div class="card-header">
+                            <span class="material-icons">save</span>
+                            <h3>Configuration</h3>
+                        </div>
+                        <div class="card-content">
+                            <p>Manage your energy2mqtt configuration.</p>
+                        </div>
+                        <div class="card-actions">
+                            <button class="outlined-button" id="saveConfig">
+                                <span class="material-icons">save</span>
+                                Save Configuration
+                            </button>
+                            <button class="outlined-button" id="reloadConfig">
+                                <span class="material-icons">refresh</span>
+                                Reload from Disk
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Dialog Overlay -->
+    <div class="dialog-overlay" id="dialogOverlay">
+        <!-- Modbus Hub Dialog -->
+        <div class="dialog" id="modbusHubDialog">
+            <div class="dialog-header">
+                <h3 id="modbusHubDialogTitle">Add Modbus Hub</h3>
+                <button class="icon-button dialog-close">
+                    <span class="material-icons">close</span>
+                </button>
+            </div>
+            <div class="dialog-content">
+                <form id="modbusHubForm">
+                    <input type="hidden" id="modbusHubEditName">
+                    <div class="form-group">
+                        <label for="modbusHubName">Name *</label>
+                        <input type="text" id="modbusHubName" required placeholder="e.g., Main Building">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="modbusHubHost">Host *</label>
+                            <input type="text" id="modbusHubHost" required placeholder="192.168.1.100">
+                        </div>
+                        <div class="form-group">
+                            <label for="modbusHubPort">Port *</label>
+                            <input type="number" id="modbusHubPort" required value="502" min="1" max="65535">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="modbusHubProto">Protocol *</label>
+                        <select id="modbusHubProto" required>
+                            <option value="TCP">Modbus TCP</option>
+                            <option value="RTU">Modbus RTU</option>
+                            <option value="RTUoverTCP">Modbus RTU over TCP</option>
+                        </select>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="modbusHubConnTimeout">Connection Timeout (s)</label>
+                            <input type="number" id="modbusHubConnTimeout" value="10" min="1" max="120">
+                        </div>
+                        <div class="form-group">
+                            <label for="modbusHubReadTimeout">Read Timeout (s)</label>
+                            <input type="number" id="modbusHubReadTimeout" value="5" min="1" max="60">
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="dialog-actions">
+                <button class="text-button dialog-cancel">Cancel</button>
+                <button class="filled-button" id="modbusHubSubmit">Add Hub</button>
+            </div>
+        </div>
+
+        <!-- Modbus Device Dialog -->
+        <div class="dialog" id="modbusDeviceDialog">
+            <div class="dialog-header">
+                <h3 id="modbusDeviceDialogTitle">Add Modbus Device</h3>
+                <button class="icon-button dialog-close">
+                    <span class="material-icons">close</span>
+                </button>
+            </div>
+            <div class="dialog-content">
+                <form id="modbusDeviceForm">
+                    <input type="hidden" id="modbusDeviceHubName">
+                    <input type="hidden" id="modbusDeviceEditName">
+                    <div class="form-group">
+                        <label for="modbusDeviceName">Device Name *</label>
+                        <input type="text" id="modbusDeviceName" required placeholder="e.g., Grid Meter">
+                    </div>
+                    <div class="form-group">
+                        <label for="modbusDeviceMeter">Meter Definition *</label>
+                        <select id="modbusDeviceMeter" required>
+                            <option value="">Select meter type...</option>
+                            <option value="sdm120">Eastron SDM120</option>
+                            <option value="sdm230">Eastron SDM230</option>
+                            <option value="sdm630">Eastron SDM630</option>
+                            <option value="dzg">DZG Metering</option>
+                            <option value="sunspec">SunSpec</option>
+                        </select>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="modbusDeviceSlaveId">Slave ID *</label>
+                            <input type="number" id="modbusDeviceSlaveId" required value="1" min="1" max="247">
+                        </div>
+                        <div class="form-group">
+                            <label for="modbusDeviceReadInterval">Read Interval (s) *</label>
+                            <input type="number" id="modbusDeviceReadInterval" required value="30" min="1" max="3600">
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="dialog-actions">
+                <button class="text-button dialog-cancel">Cancel</button>
+                <button class="filled-button" id="modbusDeviceSubmit">Add Device</button>
+            </div>
+        </div>
+
+        <!-- KNX Adapter Dialog -->
+        <div class="dialog" id="knxAdapterDialog">
+            <div class="dialog-header">
+                <h3 id="knxAdapterDialogTitle">Add KNX Adapter</h3>
+                <button class="icon-button dialog-close">
+                    <span class="material-icons">close</span>
+                </button>
+            </div>
+            <div class="dialog-content">
+                <form id="knxAdapterForm">
+                    <input type="hidden" id="knxAdapterEditName">
+                    <div class="form-group">
+                        <label for="knxAdapterName">Name *</label>
+                        <input type="text" id="knxAdapterName" required placeholder="e.g., KNX IP Gateway">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="knxAdapterHost">Host *</label>
+                            <input type="text" id="knxAdapterHost" required placeholder="192.168.1.50">
+                        </div>
+                        <div class="form-group">
+                            <label for="knxAdapterPort">Port</label>
+                            <input type="number" id="knxAdapterPort" value="3671" min="1" max="65535">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="switch-label">
+                            <span>Enabled</span>
+                            <input type="checkbox" id="knxAdapterEnabled" checked>
+                            <span class="switch"></span>
+                        </label>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="knxAdapterConnTimeout">Connection Timeout (s)</label>
+                            <input type="number" id="knxAdapterConnTimeout" value="10" min="1" max="120">
+                        </div>
+                        <div class="form-group">
+                            <label for="knxAdapterReadTimeout">Read Timeout (s)</label>
+                            <input type="number" id="knxAdapterReadTimeout" value="5" min="1" max="60">
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="dialog-actions">
+                <button class="text-button dialog-cancel">Cancel</button>
+                <button class="filled-button" id="knxAdapterSubmit">Add Adapter</button>
+            </div>
+        </div>
+
+        <!-- KNX Meter Dialog -->
+        <div class="dialog dialog-large" id="knxMeterDialog">
+            <div class="dialog-header">
+                <h3 id="knxMeterDialogTitle">Add KNX Meter</h3>
+                <button class="icon-button dialog-close">
+                    <span class="material-icons">close</span>
+                </button>
+            </div>
+            <div class="dialog-content">
+                <form id="knxMeterForm">
+                    <input type="hidden" id="knxMeterAdapterName">
+                    <input type="hidden" id="knxMeterEditName">
+                    <div class="form-group">
+                        <label for="knxMeterName">Meter Name *</label>
+                        <input type="text" id="knxMeterName" required placeholder="e.g., Main Energy Meter">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="knxMeterManufacturer">Manufacturer</label>
+                            <input type="text" id="knxMeterManufacturer" placeholder="e.g., ABB">
+                        </div>
+                        <div class="form-group">
+                            <label for="knxMeterModel">Model</label>
+                            <input type="text" id="knxMeterModel" placeholder="e.g., Energy Meter EM/S">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="knxMeterReadInterval">Read Interval (s)</label>
+                        <input type="number" id="knxMeterReadInterval" value="60" min="1" max="3600">
+                    </div>
+
+                    <h4 class="form-section-title">Phase Configuration</h4>
+                    <div class="form-group">
+                        <label for="knxMeterPhaseMode">Configuration Mode</label>
+                        <select id="knxMeterPhaseMode">
+                            <option value="single">Single Phase / Simple</option>
+                            <option value="multi">Multi-Phase (L1, L2, L3)</option>
+                        </select>
+                    </div>
+
+                    <!-- Single Phase Configuration -->
+                    <div id="knxMeterSinglePhase">
+                        <h4 class="form-section-title">Group Addresses</h4>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="knxMeterVoltageGa">Voltage</label>
+                                <input type="text" id="knxMeterVoltageGa" placeholder="e.g., 1/2/1">
+                            </div>
+                            <div class="form-group">
+                                <label for="knxMeterVoltageType">Voltage Type</label>
+                                <select id="knxMeterVoltageType">
+                                    <option value="VoltageV">Voltage (V) - DPT 9.020</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="knxMeterCurrentGa">Current</label>
+                                <input type="text" id="knxMeterCurrentGa" placeholder="e.g., 1/2/2">
+                            </div>
+                            <div class="form-group">
+                                <label for="knxMeterCurrentType">Current Type</label>
+                                <select id="knxMeterCurrentType">
+                                    <option value="CurrentA">Current (A) - DPT 9.021</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="knxMeterPowerGa">Power</label>
+                                <input type="text" id="knxMeterPowerGa" placeholder="e.g., 1/2/3">
+                            </div>
+                            <div class="form-group">
+                                <label for="knxMeterPowerType">Power Type</label>
+                                <select id="knxMeterPowerType">
+                                    <option value="PowerW">Power (W) - DPT 14.056</option>
+                                    <option value="PowerKw">Power (kW) - DPT 9.024</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="knxMeterEnergyGa">Energy</label>
+                                <input type="text" id="knxMeterEnergyGa" placeholder="e.g., 1/2/4">
+                            </div>
+                            <div class="form-group">
+                                <label for="knxMeterEnergyType">Energy Type</label>
+                                <select id="knxMeterEnergyType">
+                                    <option value="ActiveEnergyKwh">Active Energy (kWh) - DPT 13.013</option>
+                                    <option value="ActiveEnergyWh">Active Energy (Wh) - DPT 13.010</option>
+                                    <option value="ReactiveEnergyKvarh">Reactive Energy (kvarh) - DPT 13.015</option>
+                                    <option value="ReactiveEnergyVah">Reactive Energy (varh) - DPT 13.012</option>
+                                    <option value="ApparentEnergyKvah">Apparent Energy (kVAh) - DPT 13.014</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Multi-Phase Configuration -->
+                    <div id="knxMeterMultiPhase" style="display: none;">
+                        <div class="phase-tabs">
+                            <button type="button" class="phase-tab active" data-phase="1">L1</button>
+                            <button type="button" class="phase-tab" data-phase="2">L2</button>
+                            <button type="button" class="phase-tab" data-phase="3">L3</button>
+                        </div>
+
+                        <!-- Phase 1 (L1) -->
+                        <div class="phase-content active" id="knxMeterPhase1">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Phase Name</label>
+                                    <input type="text" id="knxMeterPhase1Name" value="L1" placeholder="e.g., L1">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Voltage GA</label>
+                                    <input type="text" id="knxMeterPhase1VoltageGa" placeholder="e.g., 1/2/1">
+                                </div>
+                                <div class="form-group">
+                                    <label>Current GA</label>
+                                    <input type="text" id="knxMeterPhase1CurrentGa" placeholder="e.g., 1/2/2">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Power GA</label>
+                                    <input type="text" id="knxMeterPhase1PowerGa" placeholder="e.g., 1/2/3">
+                                </div>
+                                <div class="form-group">
+                                    <label>Energy GA</label>
+                                    <input type="text" id="knxMeterPhase1EnergyGa" placeholder="e.g., 1/2/4">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Phase 2 (L2) -->
+                        <div class="phase-content" id="knxMeterPhase2" style="display: none;">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Phase Name</label>
+                                    <input type="text" id="knxMeterPhase2Name" value="L2" placeholder="e.g., L2">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Voltage GA</label>
+                                    <input type="text" id="knxMeterPhase2VoltageGa" placeholder="e.g., 1/2/5">
+                                </div>
+                                <div class="form-group">
+                                    <label>Current GA</label>
+                                    <input type="text" id="knxMeterPhase2CurrentGa" placeholder="e.g., 1/2/6">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Power GA</label>
+                                    <input type="text" id="knxMeterPhase2PowerGa" placeholder="e.g., 1/2/7">
+                                </div>
+                                <div class="form-group">
+                                    <label>Energy GA</label>
+                                    <input type="text" id="knxMeterPhase2EnergyGa" placeholder="e.g., 1/2/8">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Phase 3 (L3) -->
+                        <div class="phase-content" id="knxMeterPhase3" style="display: none;">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Phase Name</label>
+                                    <input type="text" id="knxMeterPhase3Name" value="L3" placeholder="e.g., L3">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Voltage GA</label>
+                                    <input type="text" id="knxMeterPhase3VoltageGa" placeholder="e.g., 1/2/9">
+                                </div>
+                                <div class="form-group">
+                                    <label>Current GA</label>
+                                    <input type="text" id="knxMeterPhase3CurrentGa" placeholder="e.g., 1/2/10">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Power GA</label>
+                                    <input type="text" id="knxMeterPhase3PowerGa" placeholder="e.g., 1/2/11">
+                                </div>
+                                <div class="form-group">
+                                    <label>Energy GA</label>
+                                    <input type="text" id="knxMeterPhase3EnergyGa" placeholder="e.g., 1/2/12">
+                                </div>
+                            </div>
+                        </div>
+
+                        <h4 class="form-section-title">Datapoint Types (All Phases)</h4>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="knxMeterPhaseVoltageType">Voltage Type</label>
+                                <select id="knxMeterPhaseVoltageType">
+                                    <option value="VoltageV">Voltage (V) - DPT 9.020</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="knxMeterPhaseCurrentType">Current Type</label>
+                                <select id="knxMeterPhaseCurrentType">
+                                    <option value="CurrentA">Current (A) - DPT 9.021</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="knxMeterPhasePowerType">Power Type</label>
+                                <select id="knxMeterPhasePowerType">
+                                    <option value="PowerW">Power (W) - DPT 14.056</option>
+                                    <option value="PowerKw">Power (kW) - DPT 9.024</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="knxMeterPhaseEnergyType">Energy Type</label>
+                                <select id="knxMeterPhaseEnergyType">
+                                    <option value="ActiveEnergyKwh">Active Energy (kWh) - DPT 13.013</option>
+                                    <option value="ActiveEnergyWh">Active Energy (Wh) - DPT 13.010</option>
+                                    <option value="ReactiveEnergyKvarh">Reactive Energy (kvarh) - DPT 13.015</option>
+                                    <option value="ReactiveEnergyVah">Reactive Energy (varh) - DPT 13.012</option>
+                                    <option value="ApparentEnergyKvah">Apparent Energy (kVAh) - DPT 13.014</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <h4 class="form-section-title">Total Values</h4>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="knxMeterTotalPowerGa">Total Power GA</label>
+                                <input type="text" id="knxMeterTotalPowerGa" placeholder="e.g., 1/2/20">
+                            </div>
+                            <div class="form-group">
+                                <label for="knxMeterTotalEnergyGa">Total Energy GA</label>
+                                <input type="text" id="knxMeterTotalEnergyGa" placeholder="e.g., 1/2/21">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="knxMeterTotalCurrentGa">Total Current GA</label>
+                                <input type="text" id="knxMeterTotalCurrentGa" placeholder="e.g., 1/2/22">
+                            </div>
+                            <div class="form-group">
+                                <label class="switch-label" style="margin-top: 24px;">
+                                    <span>Calculate Totals</span>
+                                    <input type="checkbox" id="knxMeterCalculateTotals" checked>
+                                    <span class="switch"></span>
+                                </label>
+                                <span class="form-hint">Sum phase values if no total GA</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group" style="margin-top: 16px;">
+                        <label class="switch-label">
+                            <span>Enabled</span>
+                            <input type="checkbox" id="knxMeterEnabled" checked>
+                            <span class="switch"></span>
+                        </label>
+                    </div>
+                </form>
+            </div>
+            <div class="dialog-actions">
+                <button class="text-button dialog-cancel">Cancel</button>
+                <button class="filled-button" id="knxMeterSubmit">Add Meter</button>
+            </div>
+        </div>
+
+        <!-- KNX Switch Dialog -->
+        <div class="dialog" id="knxSwitchDialog">
+            <div class="dialog-header">
+                <h3 id="knxSwitchDialogTitle">Add KNX Switch</h3>
+                <button class="icon-button dialog-close">
+                    <span class="material-icons">close</span>
+                </button>
+            </div>
+            <div class="dialog-content">
+                <form id="knxSwitchForm">
+                    <input type="hidden" id="knxSwitchAdapterName">
+                    <input type="hidden" id="knxSwitchEditName">
+                    <div class="form-group">
+                        <label for="knxSwitchName">Switch Name *</label>
+                        <input type="text" id="knxSwitchName" required placeholder="e.g., Main Contactor">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="knxSwitchGroupAddress">Group Address *</label>
+                            <input type="text" id="knxSwitchGroupAddress" required placeholder="e.g., 1/1/1">
+                        </div>
+                        <div class="form-group">
+                            <label for="knxSwitchStateAddress">State Address</label>
+                            <input type="text" id="knxSwitchStateAddress" placeholder="e.g., 1/1/2">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="switch-label">
+                            <span>Expose to Home Assistant</span>
+                            <input type="checkbox" id="knxSwitchExposeToHa" checked>
+                            <span class="switch"></span>
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label class="switch-label">
+                            <span>Enabled</span>
+                            <input type="checkbox" id="knxSwitchEnabled" checked>
+                            <span class="switch"></span>
+                        </label>
+                    </div>
+                </form>
+            </div>
+            <div class="dialog-actions">
+                <button class="text-button dialog-cancel">Cancel</button>
+                <button class="filled-button" id="knxSwitchSubmit">Add Switch</button>
+            </div>
+        </div>
+
+        <!-- Zenner Datahub Instance Dialog -->
+        <div class="dialog dialog-large" id="zennerInstanceDialog">
+            <div class="dialog-header">
+                <h3 id="zennerInstanceDialogTitle">Add Zenner Datahub Instance</h3>
+                <button class="icon-button dialog-close">
+                    <span class="material-icons">close</span>
+                </button>
+            </div>
+            <div class="dialog-content">
+                <form id="zennerInstanceForm">
+                    <input type="hidden" id="zennerInstanceEditName">
+                    <div class="form-group">
+                        <label for="zennerInstanceName">Instance Name *</label>
+                        <input type="text" id="zennerInstanceName" required placeholder="e.g., Building A Meters">
+                    </div>
+
+                    <h4 class="form-section-title">MQTT Broker Connection</h4>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="zennerBrokerHost">Broker Host *</label>
+                            <input type="text" id="zennerBrokerHost" required placeholder="e.g., datahub.zenner.com">
+                        </div>
+                        <div class="form-group">
+                            <label for="zennerBrokerPort">Broker Port *</label>
+                            <input type="number" id="zennerBrokerPort" required value="1883" min="1" max="65535">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="zennerBrokerUser">Username *</label>
+                            <input type="text" id="zennerBrokerUser" required placeholder="MQTT username">
+                        </div>
+                        <div class="form-group">
+                            <label for="zennerBrokerPass">Password *</label>
+                            <input type="password" id="zennerBrokerPass" required placeholder="MQTT password">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="zennerClientName">Client Name</label>
+                        <input type="text" id="zennerClientName" placeholder="e.g., energy2mqtt_zenner">
+                        <span class="form-hint">Leave empty for auto-generated name</span>
+                    </div>
+
+                    <h4 class="form-section-title">Settings</h4>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="zennerBaseTopic">Base Topic *</label>
+                            <input type="text" id="zennerBaseTopic" required placeholder="e.g., zenner/meters">
+                        </div>
+                        <div class="form-group">
+                            <label for="zennerUpdateInterval">Update Interval (s) *</label>
+                            <input type="number" id="zennerUpdateInterval" required value="60" min="10" max="3600">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="switch-label">
+                            <span>Enabled</span>
+                            <input type="checkbox" id="zennerEnabled" checked>
+                            <span class="switch"></span>
+                        </label>
+                    </div>
+                </form>
+            </div>
+            <div class="dialog-actions">
+                <button class="text-button dialog-cancel">Cancel</button>
+                <button class="filled-button" id="zennerInstanceSubmit">Add Instance</button>
+            </div>
+        </div>
+
+        <!-- OMS Meter Dialog -->
+        <div class="dialog" id="omsMeterDialog">
+            <div class="dialog-header">
+                <h3 id="omsMeterDialogTitle">Add OMS Meter</h3>
+                <button class="icon-button dialog-close">
+                    <span class="material-icons">close</span>
+                </button>
+            </div>
+            <div class="dialog-content">
+                <form id="omsMeterForm">
+                    <input type="hidden" id="omsMeterEditName">
+                    <div class="form-group">
+                        <label for="omsMeterName">Meter Name *</label>
+                        <input type="text" id="omsMeterName" required placeholder="e.g., Water Meter Kitchen">
+                        <span class="form-hint">A friendly name to identify this meter</span>
+                    </div>
+                    <div class="form-group">
+                        <label for="omsMeterDeviceId">Device ID (DIN Address) *</label>
+                        <input type="text" id="omsMeterDeviceId" required placeholder="e.g., EZRI1855310108"
+                               pattern="[0-9A-Fa-f][0-9A-Za-z]{3}[0-9A-Fa-f]+" minlength="8">
+                        <span class="form-hint">Format: 1 hex (device type) + 3 alphanumeric (manufacturer) + hex (version + serial)</span>
+                    </div>
+                    <div class="form-group">
+                        <label for="omsMeterKey">AES-128 Encryption Key *</label>
+                        <input type="text" id="omsMeterKey" required placeholder="e.g., 0102030405060708090A0B0C0D0E0F10"
+                               pattern="[0-9A-Fa-f]{32}" minlength="32" maxlength="32" class="monospace-input">
+                        <span class="form-hint">32 hexadecimal characters (16 bytes) - contact meter manufacturer for the key</span>
+                    </div>
+                    <div class="info-box">
+                        <span class="material-icons">help_outline</span>
+                        <div>
+                            <strong>How to find these values?</strong>
+                            <p>The Device ID and encryption key are typically provided by the meter manufacturer or can be found on the meter's data sheet. The Device ID follows the DIN 43863-5 format.</p>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="dialog-actions">
+                <button class="text-button dialog-cancel">Cancel</button>
+                <button class="filled-button" id="omsMeterSubmit">Add Meter</button>
+            </div>
+        </div>
+
+        <!-- Confirm Dialog -->
+        <div class="dialog dialog-small" id="confirmDialog">
+            <div class="dialog-header">
+                <h3 id="confirmDialogTitle">Confirm</h3>
+            </div>
+            <div class="dialog-content">
+                <p id="confirmDialogMessage">Are you sure?</p>
+            </div>
+            <div class="dialog-actions">
+                <button class="text-button dialog-cancel">Cancel</button>
+                <button class="filled-button danger" id="confirmDialogConfirm">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div class="toast" id="toast">
+        <span class="material-icons toast-icon"></span>
+        <span class="toast-message"></span>
+    </div>
+
+    <script src="js/api.js"></script>
+    <script src="js/components.js"></script>
+    <script src="js/live.js"></script>
+    <script src="js/setup.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>

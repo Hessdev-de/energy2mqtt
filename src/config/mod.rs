@@ -5,6 +5,7 @@ use serde_yml;
 use utoipa::ToSchema;
 use std::error::Error;
 use std::fs::{self, File};
+use std::path::Path;
 use std::io::prelude::*;
 use std::sync::RwLock;
 
@@ -110,7 +111,7 @@ pub struct TibberConfig {
     pub account_token: String,
 }
 
-#[derive(Deserialize, Serialize, Clone)]
+#[derive(Deserialize, Serialize, Clone, ToSchema)]
 pub struct OmsConfig {
     pub name: String,
     pub id: String,
@@ -303,6 +304,41 @@ fn oms_default() -> Vec<OmsConfig> { return Vec::new(); }
 fn victron_default() -> Vec<VictronConfig> { return Vec::new(); }
 fn knx_default() -> Vec<KnxAdapterConfig> { return Vec::new(); }
 fn zridh_default() -> Vec<ZennerDatahubConfig> { return Vec::new(); }
+fn rct_default() -> Vec<RctConfig> { return Vec::new(); }
+
+fn rct_port_default() -> u16 { 8899 }
+fn rct_enabled_default() -> bool { true }
+fn rct_read_interval_default() -> u64 { 30 }
+fn rct_connection_timeout_default() -> u64 { 10 }
+fn rct_read_timeout_default() -> u64 { 5 }
+fn rct_objects_default() -> Vec<String> { Vec::new() }
+fn rct_controls_enabled_default() -> bool { false }
+fn rct_controls_default() -> Vec<String> { Vec::new() }
+
+#[derive(Deserialize, Serialize, Clone, ToSchema)]
+pub struct RctConfig {
+    pub name: String,
+    pub host: String,
+    #[serde(default="rct_port_default")]
+    pub port: u16,
+    #[serde(default="rct_enabled_default")]
+    pub enabled: bool,
+    #[serde(default="rct_read_interval_default")]
+    pub read_interval: u64,
+    #[serde(default="rct_connection_timeout_default")]
+    pub connection_timeout: u64,
+    #[serde(default="rct_read_timeout_default")]
+    pub read_timeout: u64,
+    /// Optional list of object names to poll (if empty, uses defaults)
+    #[serde(default="rct_objects_default")]
+    pub objects: Vec<String>,
+    /// Enable write controls (switches, numbers, selects)
+    #[serde(default="rct_controls_enabled_default")]
+    pub controls_enabled: bool,
+    /// List of control names to expose (if empty and controls_enabled, exposes all)
+    #[serde(default="rct_controls_default")]
+    pub controls: Vec<String>,
+}
 
 #[derive(Deserialize, Serialize, Clone)]
 pub struct Config {
@@ -323,6 +359,8 @@ pub struct Config {
     pub knx: Vec<KnxAdapterConfig>,
     #[serde(default="zridh_default")]
     pub zenner_datahub: Vec<ZennerDatahubConfig>,
+    #[serde(default="rct_default")]
+    pub rct: Vec<RctConfig>,
 }
 
 pub struct ConfigHolder {
@@ -342,32 +380,147 @@ pub enum ConfigBases {
     Victron(Vec<VictronConfig>),
     Knx(Vec<KnxAdapterConfig>),
     ZRIDH(Vec<ZennerDatahubConfig>),
+    Rct(Vec<RctConfig>),
+}
+
+/// Status of the configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ConfigStatus {
+    Valid,
+    Missing,
+    Invalid(String),
 }
 
 impl ConfigHolder {
-    pub fn load() -> Self {
-
+    /// Try to load config, returning status and optional holder
+    pub fn try_load() -> (ConfigStatus, Option<Self>) {
         let mut bpath = "config/".to_string();
-        /* Check for the two paths of the config file */
-        let mut file = File::open("config/e2m.yaml");
-        if file.is_err() {
-            file = Ok(File::open("e2m.yaml").expect("Unable to read the config on config/e2m.yaml or e2m.yaml"));
-            bpath = "".to_string();
-        }
 
-        let mut file = file.unwrap();
+        // Check for the two paths of the config file
+        let file_result = File::open("config/e2m.yaml");
+        let file = match file_result {
+            Ok(f) => f,
+            Err(_) => {
+                match File::open("e2m.yaml") {
+                    Ok(f) => {
+                        bpath = "".to_string();
+                        f
+                    },
+                    Err(_) => {
+                        info!("No config file found at config/e2m.yaml or e2m.yaml");
+                        return (ConfigStatus::Missing, None);
+                    }
+                }
+            }
+        };
 
+        let mut file = file;
         let mut contents = String::new();
-        file.read_to_string(&mut contents).expect("Unable to read config file");
-        let c: Config =  serde_yml::from_str(&contents).expect("Unable to parse config file");
-        let (s, _) = tokio::sync::broadcast::channel(100);
-        return ConfigHolder { 
-            config: c,
-            callbacks: Callbacks { sender: s },
-            dirty: false,
-            lock: RwLock::new(true),
-            base_path: bpath,
+        if let Err(e) = file.read_to_string(&mut contents) {
+            return (ConfigStatus::Invalid(format!("Unable to read config file: {}", e)), None);
         }
+
+        match serde_yml::from_str::<Config>(&contents) {
+            Ok(c) => {
+                let (s, _) = tokio::sync::broadcast::channel(100);
+                (ConfigStatus::Valid, Some(ConfigHolder {
+                    config: c,
+                    callbacks: Callbacks { sender: s },
+                    dirty: false,
+                    lock: RwLock::new(true),
+                    base_path: bpath,
+                }))
+            },
+            Err(e) => {
+                (ConfigStatus::Invalid(format!("Unable to parse config file: {}", e)), None)
+            }
+        }
+    }
+
+    pub fn load() -> Self {
+        let (status, holder) = Self::try_load();
+        match holder {
+            Some(h) => h,
+            None => {
+                // Create a default config holder with placeholder MQTT settings
+                // This allows the app to start and show the setup wizard
+                info!("Creating default config holder for setup wizard");
+                let default_config = Config {
+                    httpd: httpd_default(),
+                    mqtt: MqttConfig {
+                        host: "".to_string(),
+                        port: 1883,
+                        user: "".to_string(),
+                        pass: "".to_string(),
+                        ha_enabled: true,
+                        client_name: mqtt_client_name_default(),
+                    },
+                    db: db_default(),
+                    modbus: modbus_default(),
+                    tibber: tibber_default(),
+                    oms: oms_default(),
+                    victron: victron_default(),
+                    knx: knx_default(),
+                    zenner_datahub: zridh_default(),
+                    rct: rct_default(),
+                };
+                let (s, _) = tokio::sync::broadcast::channel(100);
+                ConfigHolder {
+                    config: default_config,
+                    callbacks: Callbacks { sender: s },
+                    dirty: false,
+                    lock: RwLock::new(true),
+                    base_path: "config/".to_string(),
+                }
+            }
+        }
+    }
+
+    /// Check if the configuration is valid (has MQTT host configured)
+    pub fn is_configured(&self) -> bool {
+        !self.config.mqtt.host.is_empty()
+    }
+
+    /// Get the current config status
+    pub fn get_status() -> ConfigStatus {
+        let (status, _) = Self::try_load();
+        status
+    }
+
+    /// Create initial config file with MQTT settings
+    pub fn create_initial_config(mqtt_config: MqttConfig, base_path: &str) -> Result<(), String> {
+        let config = Config {
+            httpd: httpd_default(),
+            mqtt: mqtt_config,
+            db: db_default(),
+            modbus: modbus_default(),
+            tibber: tibber_default(),
+            oms: oms_default(),
+            victron: victron_default(),
+            knx: knx_default(),
+            zenner_datahub: zridh_default(),
+            rct: rct_default(),
+        };
+
+        let yaml = serde_yml::to_string(&config)
+            .map_err(|e| format!("Failed to serialize config: {}", e))?;
+
+        // Ensure directory exists
+        let dir_path = if base_path.is_empty() { "." } else { base_path.trim_end_matches('/') };
+        fs::create_dir_all(dir_path)
+            .map_err(|e| format!("Failed to create config directory: {}", e))?;
+
+        let config_path = if base_path.is_empty() {
+            "e2m.yaml".to_string()
+        } else {
+            format!("{}/e2m.yaml", dir_path)
+        };
+
+        fs::write(&config_path, yaml.as_bytes())
+            .map_err(|e| format!("Failed to write config file: {}", e))?;
+
+        info!("Initial config created at {}", config_path);
+        Ok(())
     }
 
     pub fn save(&mut self) {
@@ -377,17 +530,26 @@ impl ConfigHolder {
             return;
         }
 
-        let config_path = format!("{:?}/e2m.yaml", self.base_path);
-        let backup_path = format!("{:?}/backup.yaml", self.base_path);
-        
-        if fs::copy(config_path.clone(), backup_path).is_err() {
-            error!("Backing up config failed, not replacing it");
-        } else {
-            let x = serde_yml::to_string(&self.config).unwrap();
-            match fs::write(config_path, x.as_bytes()) {
-                Ok(_) => { info!("New Config written"); self.dirty = false; }
-                Err(e) => { error!("Error writing config {e:?}"); }
+        let base = Path::new(&self.base_path);
+        let config_path = base.join("e2m.yaml");
+        let backup_path = base.join("backup.yaml");
+
+        match fs::copy(&config_path, &backup_path) {
+            Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                // First save, no existing config to backup - proceed anyway
+                debug!("No existing config to backup, proceeding with first save");
             }
+            Err(e) => {
+                error!("Backing up config failed: {e}, not replacing it");
+                return;
+            }
+        }
+
+        let x = serde_yml::to_string(&self.config).unwrap();
+        match fs::write(&config_path, x.as_bytes()) {
+            Ok(_) => { info!("New Config written"); self.dirty = false; }
+            Err(e) => { error!("Error writing config {e:?}"); }
         }
     }
 
@@ -437,6 +599,10 @@ impl ConfigHolder {
                 self.config.zenner_datahub = zridh_config;
                 base = "zridh";
             }
+            ConfigBases::Rct(rct_config) => {
+                self.config.rct = rct_config;
+                base = "rct";
+            }
         }
 
         self.dirty = true;
@@ -457,6 +623,7 @@ impl ConfigHolder {
             "victron" => { return Ok(ConfigBases::Victron(self.config.victron.clone())) },
             "knx" => { return Ok(ConfigBases::Knx(self.config.knx.clone())) },
             "zridh" => { return Ok(ConfigBases::ZRIDH(self.config.zenner_datahub.clone())) },
+            "rct" => { return Ok(ConfigBases::Rct(self.config.rct.clone())) },
             _ => { Err("Type not known")? }
         }
     }

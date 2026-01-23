@@ -188,9 +188,85 @@ impl Callbacks {
 
 }
 
+/// Direction of MQTT message for live view
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum LiveEventDirection {
+    Outgoing,
+    Incoming,
+}
+
+/// Type of MQTT event for live view
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum LiveEventType {
+    Metering,
+    Command,
+    AutoDiscovery,
+    Publish,
+    Subscribe,
+    System,
+}
+
+/// Live event structure for real-time MQTT monitoring
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LiveEvent {
+    pub timestamp: u64,
+    pub direction: LiveEventDirection,
+    pub event_type: LiveEventType,
+    pub topic: String,
+    pub payload: serde_json::Value,
+    pub retain: Option<bool>,
+    pub qos: Option<u8>,
+}
+
+impl LiveEvent {
+    pub fn outgoing(event_type: LiveEventType, topic: String, payload: serde_json::Value) -> Self {
+        Self {
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64,
+            direction: LiveEventDirection::Outgoing,
+            event_type,
+            topic,
+            payload,
+            retain: None,
+            qos: None,
+        }
+    }
+
+    pub fn incoming(topic: String, payload: serde_json::Value) -> Self {
+        Self {
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64,
+            direction: LiveEventDirection::Incoming,
+            event_type: LiveEventType::Command,
+            topic,
+            payload,
+            retain: None,
+            qos: None,
+        }
+    }
+
+    pub fn with_retain(mut self, retain: bool) -> Self {
+        self.retain = Some(retain);
+        self
+    }
+
+    pub fn with_qos(mut self, qos: u8) -> Self {
+        self.qos = Some(qos);
+        self
+    }
+}
+
 lazy_static! {
     pub static ref CALLBACKS: RwLock<Callbacks> = RwLock::new(Callbacks::new());
     pub static ref APP_STATUS: RwLock<AppStatus> = RwLock::new(AppStatus::new());
+    pub static ref LIVE_EVENTS: tokio::sync::broadcast::Sender<LiveEvent> = {
+        let (tx, _) = tokio::sync::broadcast::channel(100);
+        tx
+    };
 }
 
 impl MqttManager {
@@ -209,6 +285,14 @@ impl MqttManager {
         let reconnect_c = client.clone();
         tokio::spawn( async move {
             info!("MQTT Eventloop started");
+
+            // Backoff state for reconnection
+            let mut backoff_secs: u64 = 1;
+            const MAX_BACKOFF_SECS: u64 = 60;
+            const INITIAL_BACKOFF_SECS: u64 = 1;
+            let mut last_error_log = Instant::now();
+            let mut consecutive_errors: u32 = 0;
+
             loop {
                 match eventloop.poll().await {
                     Ok(Event::Incoming(Packet::Publish(p))) => {
@@ -217,12 +301,30 @@ impl MqttManager {
                         let payload = String::from_utf8(p.payload.to_vec()).unwrap();
                         debug!("Received MQTT command {payload:?}");
 
+                        // Broadcast incoming message to live view
+                        let payload_json = serde_json::from_str(&payload)
+                            .unwrap_or_else(|_| serde_json::Value::String(payload.clone()));
+                        let live_event = LiveEvent::incoming(topic.clone(), payload_json);
+                        let _ = LIVE_EVENTS.send(live_event);
+
                         let callback = CALLBACKS.write().await;
                         callback.send(topic.clone(), payload.clone()).await;
                     },
                     Ok(Event::Incoming(Packet::ConnAck(_))) => {
-                        info!("Connected, resubscribing everything");
-                        
+                        info!("MQTT Connected, resubscribing everything");
+
+                        // Reset backoff on successful connection
+                        backoff_secs = INITIAL_BACKOFF_SECS;
+                        consecutive_errors = 0;
+
+                        // Update health status to connected
+                        {
+                            let mut app_status = APP_STATUS.write().await;
+                            app_status.mqtt_health.status = MqttConnectionStatus::Connected;
+                            app_status.mqtt_health.last_connected = Some(Instant::now());
+                            app_status.mqtt_health.connection_attempts += 1;
+                        }
+
                         /* We are connected resubstribe to everything */
                         let callbacks = CALLBACKS.read().await.get_topics().await;
                         for callback in callbacks {
@@ -233,9 +335,34 @@ impl MqttManager {
                             });
                         }
                     },
+                    Ok(Event::Incoming(Packet::Disconnect)) => {
+                        info!("MQTT Disconnected");
+                        let mut app_status = APP_STATUS.write().await;
+                        app_status.mqtt_health.status = MqttConnectionStatus::Disconnected;
+                    },
                     Ok(_) => {},
                     Err(e) => {
-                        error!("Error in MQTT {:?}, reconnecting ", e);
+                        consecutive_errors += 1;
+
+                        // Only log errors periodically to avoid flooding
+                        let now = Instant::now();
+                        if consecutive_errors == 1 || now.duration_since(last_error_log).as_secs() >= 30 {
+                            error!("MQTT connection error: {:?} (attempt {}, next retry in {}s)",
+                                   e, consecutive_errors, backoff_secs);
+                            last_error_log = now;
+                        }
+
+                        // Update health status on error
+                        {
+                            let mut app_status = APP_STATUS.write().await;
+                            app_status.mqtt_health.status = MqttConnectionStatus::Reconnecting;
+                        }
+
+                        // Apply backoff delay before next reconnection attempt
+                        tokio::time::sleep(Duration::from_secs(backoff_secs)).await;
+
+                        // Exponential backoff with max limit
+                        backoff_secs = (backoff_secs * 2).min(MAX_BACKOFF_SECS);
                     }
                 }
             }
@@ -263,9 +390,20 @@ impl MqttManager {
             match option.unwrap() {
                 Transmission::Metering(data) => {
                     info!("Metering data received: {}", data.id);
-                    match self.client.publish("energy2mqtt/raw", QoS::AtLeastOnce, false, serde_json::to_string(&data).unwrap()).await {
+                    let raw_topic = "energy2mqtt/raw".to_string();
+                    let raw_payload = serde_json::to_string(&data).unwrap();
+
+                    // Broadcast to live view
+                    let live_event = LiveEvent::outgoing(
+                        LiveEventType::Metering,
+                        raw_topic.clone(),
+                        serde_json::to_value(&data).unwrap_or_default()
+                    );
+                    let _ = LIVE_EVENTS.send(live_event);
+
+                    match self.client.publish(raw_topic, QoS::AtLeastOnce, false, raw_payload).await {
                         Err(e) => { error!("Error sending: {}", e); },
-                        Ok(_) => { 
+                        Ok(_) => {
                             debug!("Send successfully");
                             // Update health status
                             tokio::spawn(async {
@@ -281,20 +419,45 @@ impl MqttManager {
                         proto_path = data.state_topic_base.clone();
                     }
 
-                    let _ = self.client.publish(format!("energy2mqtt/devs/{}/{}", proto_path, data.meter_name),
-                                                QoS::AtLeastOnce,
-                                                false,
-                                                serde_json::to_string(&data.metered_values.clone()).unwrap()).await;
+                    let dev_topic = format!("energy2mqtt/devs/{}/{}", proto_path, data.meter_name);
+                    let dev_payload = serde_json::to_string(&data.metered_values.clone()).unwrap();
+
+                    // Broadcast device topic to live view
+                    let live_event = LiveEvent::outgoing(
+                        LiveEventType::Metering,
+                        dev_topic.clone(),
+                        serde_json::Value::Object(data.metered_values.clone())
+                    );
+                    let _ = LIVE_EVENTS.send(live_event);
+
+                    let _ = self.client.publish(dev_topic, QoS::AtLeastOnce, false, dev_payload).await;
 
                 },
                 Transmission::Command(command) => {
+                    let payload_json = serde_json::from_str(&command.value)
+                        .unwrap_or_else(|_| serde_json::Value::String(command.value.clone()));
+                    let live_event = LiveEvent::outgoing(LiveEventType::Command, command.topic.clone(), payload_json)
+                        .with_retain(command.retain);
+                    let _ = LIVE_EVENTS.send(live_event);
+
                     let _ = self.client.publish(command.topic, QoS::AtLeastOnce, command.retain, command.value).await;
                 },
                 Transmission::AutoDiscovery(disc) => {
-                    let _ = self.client.publish(disc.discover_topic.clone(),QoS::AtLeastOnce, true, serde_json::to_string(&disc).unwrap()).await;
+                    let topic = disc.discover_topic.clone();
+                    let payload = serde_json::to_value(&disc).unwrap_or_default();
+                    let live_event = LiveEvent::outgoing(LiveEventType::AutoDiscovery, topic.clone(), payload)
+                        .with_retain(true);
+                    let _ = LIVE_EVENTS.send(live_event);
+
+                    let _ = self.client.publish(topic, QoS::AtLeastOnce, true, serde_json::to_string(&disc).unwrap()).await;
                 },
                 Transmission::AutoDiscovery2(disc) => {
                     let topic = disc.get_disc_topic();
+                    let payload = serde_json::to_value(&disc.to_json()).unwrap_or_default();
+                    let live_event = LiveEvent::outgoing(LiveEventType::AutoDiscovery, topic.clone(), payload)
+                        .with_retain(true);
+                    let _ = LIVE_EVENTS.send(live_event);
+
                     let _ = self.client.publish(topic, QoS::AtLeastOnce, true, serde_json::to_string(&disc.to_json()).unwrap()).await;
                 },
                 Transmission::Subscribe(subscribe_data) =>  {
@@ -306,9 +469,24 @@ impl MqttManager {
                     if self.client.subscribe(topic.clone(), QoS::AtLeastOnce).await.is_ok() {
                         CALLBACKS.write().await.insert(topic.clone(), subscribe_data.sender);
                         info!("Registered Callback {topic}");
+
+                        // Broadcast subscribe to live view
+                        let live_event = LiveEvent::outgoing(
+                            LiveEventType::Subscribe,
+                            topic,
+                            serde_json::json!({"action": "subscribe"})
+                        );
+                        let _ = LIVE_EVENTS.send(live_event);
                     }
                 },
                 Transmission::Publish(publish_data) => {
+                    let payload_json = serde_json::from_str(&publish_data.payload)
+                        .unwrap_or_else(|_| serde_json::Value::String(publish_data.payload.clone()));
+                    let live_event = LiveEvent::outgoing(LiveEventType::Publish, publish_data.topic.clone(), payload_json)
+                        .with_retain(publish_data.retain)
+                        .with_qos(publish_data.qos);
+                    let _ = LIVE_EVENTS.send(live_event);
+
                     match self.client.publish(
                         publish_data.topic,
                         match publish_data.qos {
@@ -337,14 +515,27 @@ impl MqttManager {
                         "timestamp": get_unix_ts(),
                     });
 
+                    let crash_topic = format!("energy2mqtt/mgt/task_crash/{}/{}", data.manager, data.task_name);
+
+                    // Broadcast to live view
+                    let live_event = LiveEvent::outgoing(LiveEventType::System, crash_topic.clone(), crash_payload.clone());
+                    let _ = LIVE_EVENTS.send(live_event);
+
                     let _ = self.client.publish(
-                        format!("energy2mqtt/mgt/task_crash/{}/{}", data.manager, data.task_name),
+                        crash_topic,
                         QoS::AtLeastOnce,
                         false,
                         crash_payload.to_string()
                     ).await;
 
                     // Also publish to a general crash topic for easy monitoring
+                    let live_event = LiveEvent::outgoing(
+                        LiveEventType::System,
+                        "energy2mqtt/mgt/crashes".to_string(),
+                        crash_payload.clone()
+                    );
+                    let _ = LIVE_EVENTS.send(live_event);
+
                     let _ = self.client.publish(
                         "energy2mqtt/mgt/crashes",
                         QoS::AtLeastOnce,
