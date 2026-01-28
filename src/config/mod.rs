@@ -23,6 +23,12 @@ pub struct HttpdConfig {
 fn mqtt_client_name_default() -> String { return "energy2mqtt".to_string() }
 fn mqtt_client_user_default() -> String { return "energy2mqtt".to_string() }
 fn mqtt_client_pass_default() -> String { return "energy2mqtt".to_string() }
+fn mqtt_discovery_version_default() -> u32 { 1 }
+
+/// Current discovery format version
+/// Version 1: Flat topic structure (homeassistant/sensor/e2m_proto_device_sensor/config)
+/// Version 2: Hierarchical topics + availability (homeassistant/sensor/e2m_proto_device/sensor/config)
+pub const MQTT_DISCOVERY_VERSION_CURRENT: u32 = 2;
 
 #[derive(Deserialize, Serialize, Clone)]
 pub struct MqttConfig {
@@ -33,6 +39,9 @@ pub struct MqttConfig {
     pub ha_enabled: bool,
     #[serde(default="mqtt_client_name_default")]
     pub client_name: String,
+    /// Discovery format version - used to trigger cleanup when format changes
+    #[serde(default="mqtt_discovery_version_default")]
+    pub discovery_version: u32,
 }
 
 fn db_dbtype_default() -> String {return "sqlite".to_string() }
@@ -148,6 +157,7 @@ fn knx_phase_energy_type_default() -> KnxDatapointType { KnxDatapointType::Activ
 fn knx_phase_power_type_default() -> KnxDatapointType { KnxDatapointType::PowerW }
 fn knx_phase_voltage_type_default() -> KnxDatapointType { KnxDatapointType::VoltageV }
 fn knx_phase_current_type_default() -> KnxDatapointType { KnxDatapointType::CurrentA }
+fn knx_adapter_read_delay_default() -> u64 { 100 }
 
 #[derive(Deserialize, Serialize, Clone, ToSchema)]
 pub struct KnxPhaseConfig {
@@ -164,6 +174,10 @@ pub struct KnxPhaseConfig {
     pub voltage_type: KnxDatapointType, // Type of voltage measurement
     #[serde(default="knx_phase_current_type_default")]
     pub current_type: KnxDatapointType, // Type of current measurement
+    /// Group address for phase switch control (write)
+    pub switch_ga: Option<String>,
+    /// Group address for phase switch state feedback (read)
+    pub switch_state_ga: Option<String>,
 }
 
 fn knx_meter_enabled_default() -> bool { true }
@@ -210,6 +224,11 @@ pub struct KnxMeterConfig {
     /// If true and phases are set, calculate *_all values by summing phase values
     #[serde(default="knx_meter_calculate_totals_default")]
     pub calculate_totals: bool,
+
+    /// Global switch group address (for single-phase or combined control)
+    pub switch_ga: Option<String>,
+    /// Global switch state feedback address
+    pub switch_state_ga: Option<String>,
 }
 
 fn knx_switch_enabled_default() -> bool { true }
@@ -271,6 +290,9 @@ pub struct KnxAdapterConfig {
     pub read_timeout: u64,              // Read timeout in seconds
     /// How long to wait after sending read requests before reading cache (default: 3 seconds)
     pub response_wait: Option<u64>,
+    /// Delay between read requests in milliseconds (default: 100)
+    #[serde(default="knx_adapter_read_delay_default")]
+    pub read_delay_ms: u64,
     #[serde(default="knx_adapter_meters_default")]
     pub meters: Vec<KnxMeterConfig>,
     #[serde(default="knx_adapter_switches_default")]
@@ -304,41 +326,6 @@ fn oms_default() -> Vec<OmsConfig> { return Vec::new(); }
 fn victron_default() -> Vec<VictronConfig> { return Vec::new(); }
 fn knx_default() -> Vec<KnxAdapterConfig> { return Vec::new(); }
 fn zridh_default() -> Vec<ZennerDatahubConfig> { return Vec::new(); }
-fn rct_default() -> Vec<RctConfig> { return Vec::new(); }
-
-fn rct_port_default() -> u16 { 8899 }
-fn rct_enabled_default() -> bool { true }
-fn rct_read_interval_default() -> u64 { 30 }
-fn rct_connection_timeout_default() -> u64 { 10 }
-fn rct_read_timeout_default() -> u64 { 5 }
-fn rct_objects_default() -> Vec<String> { Vec::new() }
-fn rct_controls_enabled_default() -> bool { false }
-fn rct_controls_default() -> Vec<String> { Vec::new() }
-
-#[derive(Deserialize, Serialize, Clone, ToSchema)]
-pub struct RctConfig {
-    pub name: String,
-    pub host: String,
-    #[serde(default="rct_port_default")]
-    pub port: u16,
-    #[serde(default="rct_enabled_default")]
-    pub enabled: bool,
-    #[serde(default="rct_read_interval_default")]
-    pub read_interval: u64,
-    #[serde(default="rct_connection_timeout_default")]
-    pub connection_timeout: u64,
-    #[serde(default="rct_read_timeout_default")]
-    pub read_timeout: u64,
-    /// Optional list of object names to poll (if empty, uses defaults)
-    #[serde(default="rct_objects_default")]
-    pub objects: Vec<String>,
-    /// Enable write controls (switches, numbers, selects)
-    #[serde(default="rct_controls_enabled_default")]
-    pub controls_enabled: bool,
-    /// List of control names to expose (if empty and controls_enabled, exposes all)
-    #[serde(default="rct_controls_default")]
-    pub controls: Vec<String>,
-}
 
 #[derive(Deserialize, Serialize, Clone)]
 pub struct Config {
@@ -359,8 +346,6 @@ pub struct Config {
     pub knx: Vec<KnxAdapterConfig>,
     #[serde(default="zridh_default")]
     pub zenner_datahub: Vec<ZennerDatahubConfig>,
-    #[serde(default="rct_default")]
-    pub rct: Vec<RctConfig>,
 }
 
 pub struct ConfigHolder {
@@ -380,7 +365,6 @@ pub enum ConfigBases {
     Victron(Vec<VictronConfig>),
     Knx(Vec<KnxAdapterConfig>),
     ZRIDH(Vec<ZennerDatahubConfig>),
-    Rct(Vec<RctConfig>),
 }
 
 /// Status of the configuration
@@ -454,6 +438,7 @@ impl ConfigHolder {
                         pass: "".to_string(),
                         ha_enabled: true,
                         client_name: mqtt_client_name_default(),
+                        discovery_version: MQTT_DISCOVERY_VERSION_CURRENT,
                     },
                     db: db_default(),
                     modbus: modbus_default(),
@@ -462,7 +447,6 @@ impl ConfigHolder {
                     victron: victron_default(),
                     knx: knx_default(),
                     zenner_datahub: zridh_default(),
-                    rct: rct_default(),
                 };
                 let (s, _) = tokio::sync::broadcast::channel(100);
                 ConfigHolder {
@@ -499,7 +483,6 @@ impl ConfigHolder {
             victron: victron_default(),
             knx: knx_default(),
             zenner_datahub: zridh_default(),
-            rct: rct_default(),
         };
 
         let yaml = serde_yml::to_string(&config)
@@ -599,10 +582,6 @@ impl ConfigHolder {
                 self.config.zenner_datahub = zridh_config;
                 base = "zridh";
             }
-            ConfigBases::Rct(rct_config) => {
-                self.config.rct = rct_config;
-                base = "rct";
-            }
         }
 
         self.dirty = true;
@@ -623,7 +602,6 @@ impl ConfigHolder {
             "victron" => { return Ok(ConfigBases::Victron(self.config.victron.clone())) },
             "knx" => { return Ok(ConfigBases::Knx(self.config.knx.clone())) },
             "zridh" => { return Ok(ConfigBases::ZRIDH(self.config.zenner_datahub.clone())) },
-            "rct" => { return Ok(ConfigBases::Rct(self.config.rct.clone())) },
             _ => { Err("Type not known")? }
         }
     }

@@ -103,7 +103,7 @@ class Energy2MqttApp {
             'modbus': 'Modbus',
             'knx': 'KNX',
             'zenner': 'Zenner Datahub',
-            'mqtt': 'MQTT Configuration',
+            'oms': 'OMS Meters',
             'live': 'Live View',
             'settings': 'Settings'
         };
@@ -137,7 +137,7 @@ class Energy2MqttApp {
             case 'oms':
                 await this.loadOmsData();
                 break;
-            case 'mqtt':
+            case 'settings':
                 this.updateMqttPage();
                 break;
             case 'live':
@@ -517,6 +517,7 @@ class Energy2MqttApp {
                 enabled: document.getElementById('knxAdapterEnabled').checked,
                 connection_timeout: parseInt(document.getElementById('knxAdapterConnTimeout').value) || 10,
                 read_timeout: parseInt(document.getElementById('knxAdapterReadTimeout').value) || 5,
+                read_delay_ms: parseInt(document.getElementById('knxAdapterReadDelayMs').value) || 100,
                 meters: existingMeters,
                 switches: existingSwitches
             };
@@ -567,6 +568,9 @@ class Energy2MqttApp {
                 meter.current_type = document.getElementById('knxMeterCurrentType').value;
                 meter.power_type = document.getElementById('knxMeterPowerType').value;
                 meter.energy_type = document.getElementById('knxMeterEnergyType').value;
+                // Switch control
+                meter.switch_ga = document.getElementById('knxMeterSwitchGa').value || undefined;
+                meter.switch_state_ga = document.getElementById('knxMeterSwitchStateGa').value || undefined;
             } else {
                 // Multi-phase configuration
                 const phases = [];
@@ -581,9 +585,11 @@ class Energy2MqttApp {
                     const currentGa = document.getElementById(`knxMeterPhase${i}CurrentGa`).value;
                     const powerGa = document.getElementById(`knxMeterPhase${i}PowerGa`).value;
                     const energyGa = document.getElementById(`knxMeterPhase${i}EnergyGa`).value;
+                    const switchGa = document.getElementById(`knxMeterPhase${i}SwitchGa`).value;
+                    const switchStateGa = document.getElementById(`knxMeterPhase${i}SwitchStateGa`).value;
 
                     // Only add phase if it has at least one GA defined
-                    if (voltageGa || currentGa || powerGa || energyGa) {
+                    if (voltageGa || currentGa || powerGa || energyGa || switchGa) {
                         const phase = {
                             name: phaseName || `L${i}`,
                             voltage_type: voltageType,
@@ -595,6 +601,8 @@ class Energy2MqttApp {
                         if (currentGa) phase.current_ga = currentGa;
                         if (powerGa) phase.power_ga = powerGa;
                         if (energyGa) phase.energy_ga = energyGa;
+                        if (switchGa) phase.switch_ga = switchGa;
+                        if (switchStateGa) phase.switch_state_ga = switchStateGa;
                         phases.push(phase);
                     }
                 }
@@ -608,6 +616,10 @@ class Energy2MqttApp {
                 meter.total_energy_ga = document.getElementById('knxMeterTotalEnergyGa').value || undefined;
                 meter.total_current_ga = document.getElementById('knxMeterTotalCurrentGa').value || undefined;
                 meter.calculate_totals = document.getElementById('knxMeterCalculateTotals').checked;
+
+                // Global switch control for multi-phase
+                meter.switch_ga = document.getElementById('knxMeterMultiSwitchGa').value || undefined;
+                meter.switch_state_ga = document.getElementById('knxMeterMultiSwitchStateGa').value || undefined;
             }
 
             // Remove undefined values
@@ -776,6 +788,7 @@ class Energy2MqttApp {
             document.getElementById('knxAdapterEnabled').checked = true;
             document.getElementById('knxAdapterConnTimeout').value = 10;
             document.getElementById('knxAdapterReadTimeout').value = 5;
+            document.getElementById('knxAdapterReadDelayMs').value = 100;
             document.getElementById('knxAdapterSubmit').textContent = 'Add Adapter';
             DialogManager.show('knxAdapterDialog');
         });

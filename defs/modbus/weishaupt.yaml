@@ -1,115 +1,699 @@
 manufacturer: Weishaupt
-model: Modbus TCP
+model: Heat Pump (WWP/WBB/WSB)
 aliases:
   - wh_wp
+  - weishaupt_wp
+  - wwp
+  - wbb
+
+# Compatible with: WWP LS, WBB 12, WBB 20, WSB 6, WGB series
+# Requires: Software version 4.0+, Modbus enabled in expert settings
+# Note: Only Modbus OR WEM Portal can be active, not both simultaneously
+#
+# Weishaupt uses full addresses (30001, 40001, etc.) as actual Modbus addresses
+# This is different from typical Modbus convention where these are just documentation prefixes
 
 exports:
   climates:
+    - name: heating
+      actual_temp: heating_room_temp
+      target_temp_register: heating_room_setpoint_comfort
+      max_temp: 30
+      min_temp: 15
+      temp_step: 0.5
     - name: hotwater
       actual_temp: hotwater_temp
-      target_temp_register: hotwater_temp_target
-      max_temp: 50
-      min_temp: 15
+      target_temp_register: hotwater_temp_normal
+      max_temp: 60
+      min_temp: 30
       temp_step: 1
 
 registers:
-  # System registers
+  # ==========================================================================
+  # SYSTEM INPUT REGISTERS (30xxx) - Confirmed working
+  # ==========================================================================
+
   - name: temperature_outside
     input_type: Input
     register: 30001
-    length: 2
+    length: 1
     format: Int16
     scaler: 0.1
-    unit_of_measurement: °C
+    unit_of_measurement: "°C"
     device_class: temperature
     state_class: measurement
-  
-  # Register 30002 is unknown to us
-  
+    description: "External temperature sensor 1"
+
+  - name: temperature_outside_2
+    input_type: Input
+    register: 30002
+    length: 1
+    format: Int16
+    scaler: 0.1
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    description: "External temperature sensor 2 (optional)"
+
   - name: error_code
     input_type: Input
     register: 30003
-    length: 2
+    length: 1
     format: UInt16
     scaler: 1.0
     state_class: measurement
+    description: "Current error code (0 = no error)"
 
   - name: warning_code
     input_type: Input
     register: 30004
-    length: 2
+    length: 1
     format: UInt16
     scaler: 1.0
     state_class: measurement
+    description: "Current warning code (0 = no warning)"
 
-  - name: fault
+  - name: fault_status
     input_type: Input
     register: 30005
-    length: 2
-    format: UInt16
+    length: 1
+    format: Int16
     scaler: 1.0
-    map_as: Boolean
-    platform: BinarySensor
-    device_class: problem
-    mappings:
-      - data: "0.0"
-        mapping: true
-      - data: "1.0"
-        mapping: false
+    state_class: measurement
+    description: "Fault status (0 = Fault, 1 = OK)"
 
-  - name: current_mode
+  - name: operating_status
     input_type: Input
     register: 30006
-    length: 2
-    format: UInt16
+    length: 1
+    format: Int16
     scaler: 1.0
     state_class: measurement
+    description: "Current operating mode"
     mapping:
-      - "8.0": "Unfreeze"
+      - "8.0": "Defrost"
       - "15.0": "Standby"
       - "19.0": "Heating"
-      - "20.0": "Hot water processing"
+      - "20.0": "Hot Water"
       - "23.0": "Cooling"
-      - "25.0": "Sommer mode"
-      - "_": "Unknown: "
+      - "25.0": "Summer Mode"
+      - "_": "Unknown"
 
-  - name: operational_type
-    input_type: Holding
-    register: 40001
-    length: 2
-    format: UInt16
-    scaler: 1.0
-    state_class: measurement
+  # ==========================================================================
+  # HEATING CIRCUIT 1 INPUT REGISTERS (31xxx) - Confirmed working
+  # ==========================================================================
 
-# Hot water
-  - name: hotwater_temp_target
+  - name: heating_room_setpoint
     input_type: Input
-    register: 32101
-    length: 2
+    register: 31101
+    length: 1
     format: Int16
     scaler: 0.1
+    unit_of_measurement: "°C"
     device_class: temperature
-    unit_of_measurement: °C
     state_class: measurement
+    description: "Room setpoint temperature (calculated)"
+
+  - name: heating_room_temp
+    input_type: Input
+    register: 31102
+    length: 1
+    format: Int16
+    scaler: 0.1
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    description: "Current room temperature"
+
+  - name: heating_room_humidity
+    input_type: Input
+    register: 31103
+    length: 1
+    format: Int16
+    scaler: 1.0
+    unit_of_measurement: "%"
+    device_class: humidity
+    state_class: measurement
+    description: "Room humidity"
+
+  - name: heating_flow_setpoint
+    input_type: Input
+    register: 31104
+    length: 1
+    format: Int16
+    scaler: 0.1
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    description: "Flow setpoint temperature"
+
+  - name: heating_flow_temp
+    input_type: Input
+    register: 31105
+    length: 1
+    format: Int16
+    scaler: 0.1
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    description: "Flow temperature"
+
+  # ==========================================================================
+  # HEATING CIRCUIT 1 HOLDING REGISTERS (41xxx) - Confirmed working: 41108
+  # ==========================================================================
+
+  - name: heating_config
+    input_type: Holding
+    register: 41101
+    length: 1
+    format: Int16
+    scaler: 1.0
+    state_class: measurement
+    description: "Heating circuit configuration (read-only)"
+
+  - name: heating_request_type
+    input_type: Holding
+    register: 41102
+    length: 1
+    format: Int16
+    scaler: 1.0
+    state_class: measurement
+    description: "Heating request type"
+
+  - name: heating_operating_mode
+    input_type: Holding
+    register: 41103
+    length: 1
+    format: Int16
+    scaler: 1.0
+    state_class: measurement
+    description: "Heating circuit operating mode"
+    mapping:
+      - "0.0": "Auto"
+      - "1.0": "Comfort"
+      - "2.0": "Normal"
+      - "3.0": "Reduced"
+      - "4.0": "Off"
+      - "_": "Unknown"
+
+  - name: heating_pause_party_hours
+    input_type: Holding
+    register: 41104
+    length: 1
+    format: Int16
+    scaler: 0.5
+    unit_of_measurement: "h"
+    state_class: measurement
+    description: "Pause/Party mode duration in hours"
+
+  - name: heating_room_setpoint_comfort
+    input_type: Holding
+    register: 41105
+    length: 1
+    format: Int16
+    scaler: 0.1
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    description: "Room setpoint comfort temperature"
+
+  - name: heating_room_setpoint_normal
+    input_type: Holding
+    register: 41106
+    length: 1
+    format: Int16
+    scaler: 0.1
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    description: "Room setpoint normal temperature"
+
+  - name: heating_room_setpoint_reduced
+    input_type: Holding
+    register: 41107
+    length: 1
+    format: Int16
+    scaler: 0.1
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    description: "Room setpoint reduced temperature"
+
+  - name: heating_curve
+    input_type: Holding
+    register: 41108
+    length: 1
+    format: Int16
+    scaler: 0.01
+    state_class: measurement
+    description: "Heating curve characteristic"
+
+  - name: heating_summer_winter_switchover
+    input_type: Holding
+    register: 41109
+    length: 1
+    format: Int16
+    scaler: 0.1
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    description: "Summer/winter switchover temperature"
+
+  - name: heating_constant_temp
+    input_type: Holding
+    register: 41110
+    length: 1
+    format: Int16
+    scaler: 0.1
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    description: "Heating constant temperature"
+
+  - name: heating_constant_temp_reduced
+    input_type: Holding
+    register: 41111
+    length: 1
+    format: Int16
+    scaler: 0.1
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    description: "Heating constant temperature reduced"
+
+  # ==========================================================================
+  # HOT WATER INPUT REGISTERS (32xxx) - Confirmed working
+  # ==========================================================================
+
+  - name: hotwater_temp_setpoint
+    input_type: Input
+    register: 32101
+    length: 1
+    format: Int16
+    scaler: 0.1
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    description: "Hot water setpoint temperature (calculated)"
 
   - name: hotwater_temp
     input_type: Input
     register: 32102
-    length: 2
+    length: 1
     format: Int16
+    scaler: 0.1
+    unit_of_measurement: "°C"
     device_class: temperature
-    unit_of_measurement: °C
     state_class: measurement
-  - name: "hotwater_push_mode"
+    description: "Current hot water temperature"
+
+  # ==========================================================================
+  # HOT WATER HOLDING REGISTERS (42xxx)
+  # ==========================================================================
+
+  - name: hotwater_config
     input_type: Holding
-    register: 42102
-    length: 2
+    register: 42101
+    length: 1
     format: Int16
     scaler: 1.0
+    state_class: measurement
+    description: "Hot water configuration (read-only)"
+
+  - name: hotwater_push_duration
+    input_type: Holding
+    register: 42102
+    length: 1
+    format: Int16
+    scaler: 1.0
+    unit_of_measurement: "min"
+    state_class: measurement
+    description: "Hot water push duration in minutes"
+
+  - name: hotwater_temp_normal
+    input_type: Holding
+    register: 42103
+    length: 1
+    format: Int16
+    scaler: 0.1
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    description: "Hot water normal temperature setpoint"
+
+  - name: hotwater_temp_reduced
+    input_type: Holding
+    register: 42104
+    length: 1
+    format: Int16
+    scaler: 0.1
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    description: "Hot water reduced temperature setpoint"
+
+  # ==========================================================================
+  # HEAT PUMP INPUT REGISTERS (33xxx) - Confirmed working: 33103, 33104, 33105
+  # ==========================================================================
+
+  - name: heatpump_operation_status
+    input_type: Input
+    register: 33101
+    length: 1
+    format: Int16
+    scaler: 1.0
+    state_class: measurement
+    description: "Heat pump operation status"
+
+  - name: heatpump_fault_status
+    input_type: Input
+    register: 33102
+    length: 1
+    format: Int16
+    scaler: 1.0
+    state_class: measurement
+    description: "Heat pump fault status"
+
+  - name: heatpump_power_demand
+    input_type: Input
+    register: 33103
+    length: 1
+    format: Int16
+    scaler: 1.0
+    unit_of_measurement: "%"
+    state_class: measurement
+    description: "Heat pump power demand percentage"
+
+  - name: heatpump_flow_temp
+    input_type: Input
+    register: 33104
+    length: 1
+    format: Int16
+    scaler: 0.1
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    description: "Heat pump flow temperature (before aux heater)"
+
+  - name: heatpump_return_temp
+    input_type: Input
+    register: 33105
+    length: 1
+    format: Int16
+    scaler: 0.1
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    description: "Heat pump return temperature"
+
+  # ==========================================================================
+  # SECONDARY HEAT SOURCE INPUT REGISTERS (34xxx) - Confirmed: 34104-34107
+  # ==========================================================================
+
+  - name: secondary_heater_status
+    input_type: Input
+    register: 34101
+    length: 1
+    format: Int16
+    scaler: 1.0
+    state_class: measurement
+    description: "Secondary heat source status"
+
+  - name: secondary_e1_status
+    input_type: Input
+    register: 34104
+    length: 1
+    format: Int16
+    scaler: 1.0
+    state_class: measurement
+    description: "E-Heater 1 status"
+
+  - name: secondary_e2_status
+    input_type: Input
+    register: 34105
+    length: 1
+    format: Int16
+    scaler: 1.0
+    state_class: measurement
+    description: "E-Heater 2 status"
+
+  - name: secondary_e1_hours
+    input_type: Input
+    register: 34106
+    length: 1
+    format: Int16
+    scaler: 1.0
+    unit_of_measurement: "h"
+    state_class: measurement
+    description: "E-Heater 1 operating hours"
+
+  - name: secondary_e2_hours
+    input_type: Input
+    register: 34107
+    length: 1
+    format: Int16
+    scaler: 1.0
+    unit_of_measurement: "h"
+    state_class: measurement
+    description: "E-Heater 2 operating hours"
+
+  # ==========================================================================
+  # SECONDARY HEAT SOURCE HOLDING REGISTERS (44xxx)
+  # ==========================================================================
+
+  - name: secondary_heater_config
+    input_type: Holding
+    register: 44101
+    length: 1
+    format: Int16
+    scaler: 1.0
+    state_class: measurement
+    description: "Secondary heat source configuration (read-only)"
+
+  - name: secondary_heater_limit_temp
+    input_type: Holding
+    register: 44102
+    length: 1
+    format: Int16
+    scaler: 0.1
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    description: "Secondary heater limit temperature"
+
+  - name: secondary_heater_bivalence_temp
+    input_type: Holding
+    register: 44103
+    length: 1
+    format: Int16
+    scaler: 0.1
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    description: "Bivalence temperature for heating"
+
+  - name: secondary_heater_bivalence_temp_hotwater
+    input_type: Holding
+    register: 44104
+    length: 1
+    format: Int16
+    scaler: 0.1
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    description: "Bivalence temperature for hot water"
+
+  # ==========================================================================
+  # STATISTICS - TOTAL ENERGY (36.1xx) - Confirmed working
+  # ==========================================================================
+
+  - name: energy_total_today
+    input_type: Input
+    register: 36101
+    length: 1
+    format: Int16
+    unit_of_measurement: kWh
+    device_class: energy
+    state_class: total_increasing
+
+  - name: energy_total_yesterday
+    input_type: Input
+    register: 36102
+    length: 1
+    format: Int16
+    unit_of_measurement: kWh
+    device_class: energy
+    state_class: measurement
+
+  - name: energy_total_month
+    input_type: Input
+    register: 36103
+    length: 1
+    format: Int16
+    unit_of_measurement: kWh
+    device_class: energy
+    state_class: total_increasing
+
+  - name: energy_total_year
+    input_type: Input
+    register: 36104
+    length: 1
+    format: Int16
+    unit_of_measurement: kWh
+    device_class: energy
+    state_class: total_increasing
+
+  # ==========================================================================
+  # STATISTICS - HEATING ENERGY (36.2xx) - Confirmed working
+  # ==========================================================================
+
+  - name: energy_heating_today
+    input_type: Input
+    register: 36201
+    length: 1
+    format: Int16
+    unit_of_measurement: kWh
+    device_class: energy
+    state_class: total_increasing
+
+  - name: energy_heating_yesterday
+    input_type: Input
+    register: 36202
+    length: 1
+    format: Int16
+    unit_of_measurement: kWh
+    device_class: energy
+    state_class: measurement
+
+  - name: energy_heating_month
+    input_type: Input
+    register: 36203
+    length: 1
+    format: Int16
+    unit_of_measurement: kWh
+    device_class: energy
+    state_class: total_increasing
+
+  - name: energy_heating_year
+    input_type: Input
+    register: 36204
+    length: 1
+    format: Int16
+    unit_of_measurement: kWh
+    device_class: energy
+    state_class: total_increasing
+
+  # ==========================================================================
+  # STATISTICS - HOT WATER ENERGY (36.3xx) - Confirmed working
+  # ==========================================================================
+
+  - name: energy_hotwater_today
+    input_type: Input
+    register: 36301
+    length: 1
+    format: Int16
+    unit_of_measurement: kWh
+    device_class: energy
+    state_class: total_increasing
+
+  - name: energy_hotwater_yesterday
+    input_type: Input
+    register: 36302
+    length: 1
+    format: Int16
+    unit_of_measurement: kWh
+    device_class: energy
+    state_class: measurement
+
+  - name: energy_hotwater_month
+    input_type: Input
+    register: 36303
+    length: 1
+    format: Int16
+    unit_of_measurement: kWh
+    device_class: energy
+    state_class: total_increasing
+
+  - name: energy_hotwater_year
+    input_type: Input
+    register: 36304
+    length: 1
+    format: Int16
+    unit_of_measurement: kWh
+    device_class: energy
+    state_class: total_increasing
+
+# ==========================================================================
+# ACTIONS (Writable registers)
+# ==========================================================================
 
 actions:
-  - name: operational_type
-    register: 40001
-    length: 2
+  - name: set_heating_mode
+    register: 41103
+    length: 1
     format: Int16
+    description: "Set heating circuit operating mode"
     options:
+      - value: 0
+        label: "Auto"
+      - value: 1
+        label: "Comfort"
+      - value: 2
+        label: "Normal"
+      - value: 3
+        label: "Reduced"
+      - value: 4
+        label: "Off"
+
+  - name: set_room_temp_comfort
+    register: 41105
+    length: 1
+    format: Int16
+    scaler: 0.1
+    description: "Set room comfort temperature"
+    min: 150
+    max: 300
+
+  - name: set_room_temp_normal
+    register: 41106
+    length: 1
+    format: Int16
+    scaler: 0.1
+    description: "Set room normal temperature"
+    min: 150
+    max: 280
+
+  - name: set_room_temp_reduced
+    register: 41107
+    length: 1
+    format: Int16
+    scaler: 0.1
+    description: "Set room reduced temperature"
+    min: 100
+    max: 250
+
+  - name: set_hotwater_push
+    register: 42102
+    length: 1
+    format: Int16
+    description: "Activate hot water push (minutes)"
+    min: 0
+    max: 120
+
+  - name: set_hotwater_temp_normal
+    register: 42103
+    length: 1
+    format: Int16
+    scaler: 0.1
+    description: "Set hot water normal temperature"
+    min: 300
+    max: 600
+
+  - name: set_hotwater_temp_reduced
+    register: 42104
+    length: 1
+    format: Int16
+    scaler: 0.1
+    description: "Set hot water reduced temperature"
+    min: 300
+    max: 550

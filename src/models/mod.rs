@@ -87,7 +87,7 @@ pub enum DeviceProtocol {
     SML,
     Victron,
     KNX,
-    ZennerDatahub
+    ZennerDatahub,
 }
 
 impl Display for DeviceProtocol {

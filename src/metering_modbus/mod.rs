@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime};
-use crate::{config::{ConfigBases, ConfigChange, ConfigOperation, ModbusConfig, ModbusDeviceConfig, ModbusHubConfig, ModbusProtoConfig}, metering_modbus::registers::Register, models::DeviceProtocol, mqtt::{ha_interface::{HaComponent, HaDiscover}, Transmission, publish_protocol_count}, task_monitor::TaskMonitor, MeteringData, CONFIG};
+use crate::{config::{ConfigBases, ConfigChange, ConfigOperation, ModbusConfig, ModbusDeviceConfig, ModbusHubConfig, ModbusProtoConfig}, metering_modbus::registers::Register, models::DeviceProtocol, mqtt::{home_assistant::{HaSensor, HaComponent2}, Transmission, publish_protocol_count}, task_monitor::TaskMonitor, MeteringData, CONFIG};
 use evalexpr::{ContextWithMutableVariables, DefaultNumericTypes, HashMapContext};
 use log::{debug, error, info, warn};
 use rmodbus::{client::ModbusRequest, guess_response_frame_len, ModbusProto};
@@ -148,11 +148,16 @@ impl ModbusManger
                             };
                             devs.push(d);
 
-                            /* Register with Home Assistant */
-                            let mut discover =  HaDiscover::new(dev.name.clone(), manu, model, format!("{:?}", DeviceProtocol::ModbusTCP));
+                            /* Register with Home Assistant using individual entity discovery */
+                            let mut discover = HaSensor::new(
+                                format!("{:?}", DeviceProtocol::ModbusTCP),
+                                dev.name.clone(),
+                                Some(manu),
+                                Some(model)
+                            );
+
                             for reg in r {
-                            
-                                let (platform,name, device_class, unit_of_measurement,  state_class) = match reg {
+                                let (platform, name, device_class, unit_of_measurement, state_class) = match reg {
                                     registers::Register::Template(register) => (
                                         register.platform,
                                         register.name,
@@ -169,19 +174,32 @@ impl ModbusManger
                                     ),
                                 };
 
-                                let cmp = HaComponent::new(
-                                    platform,
-                                    dev.name.clone(),
-                                    device_class.clone(),
-                                    unit_of_measurement.clone(),
-                                    format!("{:?}", DeviceProtocol::ModbusTCP),
-                                    name.clone(),
-                                    state_class.clone(),
-                                );
+                                // Build component using the new HaComponent2 builder
+                                let mut cmp = HaComponent2::new()
+                                    .name(name.clone())
+                                    .platform(platform.to_string());
 
-                                discover.cmps.insert(name.clone(),serde_json::to_value(cmp).unwrap());
+                                // Only add device_class if it's not NONE
+                                if !device_class.is_empty() && device_class != "NONE" {
+                                    cmp = cmp.device_class(device_class);
+                                }
+
+                                // Only add unit_of_measurement if it's not NONE
+                                if !unit_of_measurement.is_empty() && unit_of_measurement != "NONE" {
+                                    cmp = cmp.unit_of_measurement(unit_of_measurement);
+                                }
+
+                                // Only add state_class if it's not NONE
+                                if !state_class.is_empty() && state_class != "NONE" {
+                                    cmp = cmp.state_class(state_class);
+                                } else {
+                                    // Remove default state_class if it shouldn't be set
+                                    cmp = cmp.non_numeric();
+                                }
+
+                                discover.add_cmp(name.clone(), cmp);
                             }
-                            let _ = hub_sender.send(Transmission::AutoDiscovery(discover)).await;
+                            let _ = hub_sender.send(Transmission::AutoDiscovery2(discover)).await;
                         }
                         devs
                     }

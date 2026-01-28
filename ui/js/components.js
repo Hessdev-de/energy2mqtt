@@ -419,6 +419,7 @@ class KnxComponents {
         const statusBadge = adapter.enabled !== false
             ? '<span class="badge success">Enabled</span>'
             : '<span class="badge">Disabled</span>';
+        const readDelay = adapter.read_delay_ms || 100;
 
         return `
             <div class="card adapter-card ${statusClass}">
@@ -427,7 +428,7 @@ class KnxComponents {
                     <div class="adapter-info">
                         <div class="adapter-name">${escapeHtml(adapter.name)} ${statusBadge}</div>
                         <div class="adapter-details">
-                            ${escapeHtml(adapter.host)}:${adapter.port || 3671}
+                            ${escapeHtml(adapter.host)}:${adapter.port || 3671} &bull; Read delay: ${readDelay}ms
                         </div>
                     </div>
                     <div class="adapter-actions">
@@ -485,17 +486,27 @@ class KnxComponents {
 
         return adapter.meters.map(meter => {
             let configInfo = '';
+            let switchInfo = '';
 
             // Check if multi-phase or single-phase
             if (meter.phases && meter.phases.length > 0) {
                 const phaseNames = meter.phases.map(p => p.name || 'Phase').join(', ');
                 configInfo = `<span class="badge">Multi-Phase</span> ${phaseNames}`;
+                // Check for switches in phases or global
+                const hasPhaseSwitch = meter.phases.some(p => p.switch_ga || p.switch_state_ga);
+                if (meter.switch_ga || hasPhaseSwitch) {
+                    switchInfo = ' <span class="badge">Switch</span>';
+                }
             } else {
                 const gaInfo = [];
                 if (meter.voltage_ga) gaInfo.push(`V: ${meter.voltage_ga}`);
                 if (meter.power_ga) gaInfo.push(`P: ${meter.power_ga}`);
                 if (meter.energy_ga) gaInfo.push(`E: ${meter.energy_ga}`);
                 configInfo = gaInfo.length > 0 ? gaInfo.join(' &bull; ') : 'No group addresses configured';
+                // Check for switch
+                if (meter.switch_ga || meter.switch_state_ga) {
+                    switchInfo = ' <span class="badge">Switch</span>';
+                }
             }
 
             return `
@@ -504,7 +515,7 @@ class KnxComponents {
                         <span class="material-icons">electric_meter</span>
                     </div>
                     <div class="device-info">
-                        <div class="device-name">${escapeHtml(meter.name)}</div>
+                        <div class="device-name">${escapeHtml(meter.name)}${switchInfo}</div>
                         <div class="device-meta">
                             ${configInfo}
                             ${meter.manufacturer ? ` &bull; ${escapeHtml(meter.manufacturer)}` : ''}
@@ -626,6 +637,7 @@ class KnxComponents {
         document.getElementById('knxAdapterEnabled').checked = adapter.enabled !== false;
         document.getElementById('knxAdapterConnTimeout').value = adapter.connection_timeout || 10;
         document.getElementById('knxAdapterReadTimeout').value = adapter.read_timeout || 5;
+        document.getElementById('knxAdapterReadDelayMs').value = adapter.read_delay_ms || 100;
 
         document.getElementById('knxAdapterDialogTitle').textContent = 'Edit KNX Adapter';
         document.getElementById('knxAdapterSubmit').textContent = 'Save Changes';
@@ -657,7 +669,44 @@ class KnxComponents {
             phaseModeSelect.value = 'multi';
             if (phaseConfig) phaseConfig.classList.remove('hidden');
             if (singlePhaseConfig) singlePhaseConfig.classList.add('hidden');
-            // TODO: Fill phase data (complex, would need more UI work)
+
+            // Fill phase data
+            for (let i = 0; i < 3; i++) {
+                const phase = meter.phases[i];
+                const phaseNum = i + 1;
+                if (phase) {
+                    const nameEl = document.getElementById(`knxMeterPhase${phaseNum}Name`);
+                    if (nameEl) nameEl.value = phase.name || `L${phaseNum}`;
+                    const voltageEl = document.getElementById(`knxMeterPhase${phaseNum}VoltageGa`);
+                    if (voltageEl) voltageEl.value = phase.voltage_ga || '';
+                    const currentEl = document.getElementById(`knxMeterPhase${phaseNum}CurrentGa`);
+                    if (currentEl) currentEl.value = phase.current_ga || '';
+                    const powerEl = document.getElementById(`knxMeterPhase${phaseNum}PowerGa`);
+                    if (powerEl) powerEl.value = phase.power_ga || '';
+                    const energyEl = document.getElementById(`knxMeterPhase${phaseNum}EnergyGa`);
+                    if (energyEl) energyEl.value = phase.energy_ga || '';
+                    const switchEl = document.getElementById(`knxMeterPhase${phaseNum}SwitchGa`);
+                    if (switchEl) switchEl.value = phase.switch_ga || '';
+                    const switchStateEl = document.getElementById(`knxMeterPhase${phaseNum}SwitchStateGa`);
+                    if (switchStateEl) switchStateEl.value = phase.switch_state_ga || '';
+                }
+            }
+
+            // Fill totals
+            const totalPowerEl = document.getElementById('knxMeterTotalPowerGa');
+            if (totalPowerEl) totalPowerEl.value = meter.total_power_ga || '';
+            const totalEnergyEl = document.getElementById('knxMeterTotalEnergyGa');
+            if (totalEnergyEl) totalEnergyEl.value = meter.total_energy_ga || '';
+            const totalCurrentEl = document.getElementById('knxMeterTotalCurrentGa');
+            if (totalCurrentEl) totalCurrentEl.value = meter.total_current_ga || '';
+            const calcTotalsEl = document.getElementById('knxMeterCalculateTotals');
+            if (calcTotalsEl) calcTotalsEl.checked = meter.calculate_totals !== false;
+
+            // Global switch for multi-phase
+            const multiSwitchEl = document.getElementById('knxMeterMultiSwitchGa');
+            if (multiSwitchEl) multiSwitchEl.value = meter.switch_ga || '';
+            const multiSwitchStateEl = document.getElementById('knxMeterMultiSwitchStateGa');
+            if (multiSwitchStateEl) multiSwitchStateEl.value = meter.switch_state_ga || '';
         } else {
             if (phaseModeSelect) phaseModeSelect.value = 'single';
             if (phaseConfig) phaseConfig.classList.add('hidden');
@@ -674,6 +723,13 @@ class KnxComponents {
             }
             if (document.getElementById('knxMeterEnergyGa')) {
                 document.getElementById('knxMeterEnergyGa').value = meter.energy_ga || '';
+            }
+            // Switch fields for single-phase
+            if (document.getElementById('knxMeterSwitchGa')) {
+                document.getElementById('knxMeterSwitchGa').value = meter.switch_ga || '';
+            }
+            if (document.getElementById('knxMeterSwitchStateGa')) {
+                document.getElementById('knxMeterSwitchStateGa').value = meter.switch_state_ga || '';
             }
         }
 

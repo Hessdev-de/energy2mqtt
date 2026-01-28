@@ -5,8 +5,8 @@
 
 use crate::config::{ConfigBases, ConfigChange, ConfigOperation, KnxAdapterConfig, KnxDatapointType, KnxMeterConfig};
 use crate::models::DeviceProtocol;
-use crate::mqtt::home_assistant::{get_state_topic, HaComponent2, HaSensor};
-use crate::mqtt::{publish_protocol_count, Transmission};
+use crate::mqtt::home_assistant::{get_command_topic, get_state_topic, HaComponent2, HaSensor};
+use crate::mqtt::{publish_protocol_count, SubscribeData, Transmission};
 use crate::task_monitor::TaskMonitor;
 use crate::{get_id, get_unix_ts, MeteringData, CONFIG};
 use log::{debug, error, info, warn};
@@ -22,6 +22,14 @@ pub mod knxd_client;
 
 use group_address::GroupAddress;
 use knxd_client::{KnxClient, KnxError};
+
+/// Switch configuration for MQTT command handling
+#[derive(Debug, Clone)]
+struct SwitchConfig {
+    group_address: GroupAddress,
+    meter_name: String,
+    switch_name: String,
+}
 
 /// A cached value from the KNX bus
 #[derive(Debug, Clone)]
@@ -205,18 +213,20 @@ async fn run_adapter(config: KnxAdapterConfig, sender: Sender<Transmission>) {
 
     let group_addresses = build_group_address_set(&config);
     let poll_addresses = build_poll_addresses(&config);
+    let switch_map = build_switch_map(&config);
 
     info!(
-        "KNX adapter '{}': Monitoring {} group addresses",
+        "KNX adapter '{}': Monitoring {} group addresses, {} switches",
         config.name,
-        group_addresses.len()
+        group_addresses.len(),
+        switch_map.len()
     );
 
     let mut reconnect_delay = Duration::from_secs(5);
     let max_reconnect_delay = Duration::from_secs(60);
 
     loop {
-        match run_adapter_connection(&config, port, &sender, &group_addresses, &poll_addresses, stats.clone()).await {
+        match run_adapter_connection(&config, port, &sender, &group_addresses, &poll_addresses, &switch_map, stats.clone()).await {
             Ok(_) => {
                 // This shouldn't happen, but if it does, reconnect
                 info!("KNX adapter '{}': Connection ended, reconnecting...", config.name);
@@ -246,6 +256,7 @@ async fn run_adapter_connection(
     sender: &Sender<Transmission>,
     group_addresses: &GroupAddressSet,
     poll_addresses: &[(GroupAddress, KnxDatapointType)],
+    switch_map: &HashMap<String, SwitchConfig>,
     stats: SharedStats,
 ) -> Result<(), KnxError> {
     let mut client = KnxClient::new(&config.host, port);
@@ -271,7 +282,7 @@ async fn run_adapter_connection(
         config.name, poll_interval_secs, response_wait_secs
     );
 
-    // Run both tasks concurrently - return when either completes (with error)
+    // Run all tasks concurrently - return when any completes (with error)
     tokio::select! {
         result = bus_reader_task(
             client.clone(),
@@ -294,6 +305,15 @@ async fn run_adapter_connection(
             stats.clone(),
         ) => {
             warn!("KNX adapter '{}': Poll cycle task ended: {:?}", config.name, result);
+            result
+        }
+        result = switch_control_task(
+            client.clone(),
+            &config.name,
+            switch_map.clone(),
+            sender,
+        ) => {
+            warn!("KNX adapter '{}': Switch control task ended: {:?}", config.name, result);
             result
         }
     }
@@ -404,7 +424,7 @@ async fn poll_cycle_task(
                         }
                     }
                 }
-                tokio::time::sleep(Duration::from_millis(50)).await;
+                tokio::time::sleep(Duration::from_millis(config.read_delay_ms)).await;
             }
 
             info!("KNX adapter '{}': Waiting {}s for responses", config.name, response_wait_secs);
@@ -584,6 +604,22 @@ async fn publish_meter_values(
                     }
                 }
             }
+
+            // Phase switch state (prefer switch_state_ga, fallback to switch_ga)
+            let switch_state = phase.switch_state_ga.as_ref().or(phase.switch_ga.as_ref());
+            if let Some(ga_str) = switch_state {
+                if let Ok(ga) = GroupAddress::from_str(ga_str) {
+                    if let Some(cached) = cache.get(&ga.to_u16()) {
+                        cache_hits += 1;
+                        if let Some(value) = parse_dpt_value(&KnxDatapointType::Switch, &cached.data) {
+                            meter_data.metered_values.insert(format!("switch_{}", phase_suffix), value);
+                            value_count += 1;
+                        }
+                    } else {
+                        cache_misses += 1;
+                    }
+                }
+            }
         }
 
         // Handle totals - either from bus or calculated
@@ -659,6 +695,22 @@ async fn publish_meter_values(
             }
         }
 
+        // Global switch state (prefer switch_state_ga, fallback to switch_ga)
+        let switch_state = meter.switch_state_ga.as_ref().or(meter.switch_ga.as_ref());
+        if let Some(ga_str) = switch_state {
+            if let Ok(ga) = GroupAddress::from_str(ga_str) {
+                if let Some(cached) = cache.get(&ga.to_u16()) {
+                    cache_hits += 1;
+                    if let Some(value) = parse_dpt_value(&KnxDatapointType::Switch, &cached.data) {
+                        meter_data.metered_values.insert("switch".to_string(), value);
+                        value_count += 1;
+                    }
+                } else {
+                    cache_misses += 1;
+                }
+            }
+        }
+
     } else {
         // Single-meter configuration (no phases)
 
@@ -714,6 +766,22 @@ async fn publish_meter_values(
                     cache_hits += 1;
                     if let Some(value) = parse_dpt_value(&meter.energy_type, &cached.data) {
                         meter_data.metered_values.insert("energy".to_string(), value);
+                        value_count += 1;
+                    }
+                } else {
+                    cache_misses += 1;
+                }
+            }
+        }
+
+        // Global switch state (prefer switch_state_ga, fallback to switch_ga)
+        let switch_state = meter.switch_state_ga.as_ref().or(meter.switch_ga.as_ref());
+        if let Some(ga_str) = switch_state {
+            if let Ok(ga) = GroupAddress::from_str(ga_str) {
+                if let Some(cached) = cache.get(&ga.to_u16()) {
+                    cache_hits += 1;
+                    if let Some(value) = parse_dpt_value(&KnxDatapointType::Switch, &cached.data) {
+                        meter_data.metered_values.insert("switch".to_string(), value);
                         value_count += 1;
                     }
                 } else {
@@ -802,6 +870,13 @@ fn build_poll_addresses(config: &KnxAdapterConfig) -> Vec<(GroupAddress, KnxData
                     addresses.push((ga, phase.energy_type.clone()));
                 }
             }
+            // Phase switch state (prefer switch_state_ga, fallback to switch_ga)
+            let switch_state = phase.switch_state_ga.as_ref().or(phase.switch_ga.as_ref());
+            if let Some(ga_str) = switch_state {
+                if let Ok(ga) = GroupAddress::from_str(ga_str) {
+                    addresses.push((ga, KnxDatapointType::Switch));
+                }
+            }
         }
 
         // Single-meter addresses
@@ -842,6 +917,14 @@ fn build_poll_addresses(config: &KnxAdapterConfig) -> Vec<(GroupAddress, KnxData
                 addresses.push((ga, meter.current_type.clone()));
             }
         }
+
+        // Global switch state (prefer switch_state_ga, fallback to switch_ga)
+        let switch_state = meter.switch_state_ga.as_ref().or(meter.switch_ga.as_ref());
+        if let Some(ga_str) = switch_state {
+            if let Ok(ga) = GroupAddress::from_str(ga_str) {
+                addresses.push((ga, KnxDatapointType::Switch));
+            }
+        }
     }
 
     addresses
@@ -874,6 +957,13 @@ fn build_group_address_set(config: &KnxAdapterConfig) -> GroupAddressSet {
                 }
             }
             if let Some(ga_str) = &phase.energy_ga {
+                if let Ok(ga) = GroupAddress::from_str(ga_str) {
+                    set.insert(ga.to_u16());
+                }
+            }
+            // Phase switch state (prefer switch_state_ga, fallback to switch_ga)
+            let switch_state = phase.switch_state_ga.as_ref().or(phase.switch_ga.as_ref());
+            if let Some(ga_str) = switch_state {
                 if let Ok(ga) = GroupAddress::from_str(ga_str) {
                     set.insert(ga.to_u16());
                 }
@@ -918,9 +1008,156 @@ fn build_group_address_set(config: &KnxAdapterConfig) -> GroupAddressSet {
                 set.insert(ga.to_u16());
             }
         }
+
+        // Global switch state (prefer switch_state_ga, fallback to switch_ga)
+        let switch_state = meter.switch_state_ga.as_ref().or(meter.switch_ga.as_ref());
+        if let Some(ga_str) = switch_state {
+            if let Ok(ga) = GroupAddress::from_str(ga_str) {
+                set.insert(ga.to_u16());
+            }
+        }
     }
 
     set
+}
+
+/// Build a map of command topics to switch configs
+fn build_switch_map(config: &KnxAdapterConfig) -> HashMap<String, SwitchConfig> {
+    let mut map = HashMap::new();
+
+    for meter in &config.meters {
+        if !meter.enabled {
+            continue;
+        }
+
+        let device_id = sanitize_id(&meter.name);
+        let proto = "KNX".to_string();
+
+        // Global switch
+        if let Some(ga_str) = &meter.switch_ga {
+            if let Ok(ga) = GroupAddress::from_str(ga_str) {
+                let topic = get_command_topic(&proto, &device_id, &"switch".to_string());
+                map.insert(topic, SwitchConfig {
+                    group_address: ga,
+                    meter_name: meter.name.clone(),
+                    switch_name: "switch".to_string(),
+                });
+            }
+        }
+
+        // Per-phase switches
+        for phase in &meter.phases {
+            if let Some(ga_str) = &phase.switch_ga {
+                if let Ok(ga) = GroupAddress::from_str(ga_str) {
+                    let phase_suffix = sanitize_id(&phase.name);
+                    let switch_name = format!("switch_{}", phase_suffix);
+                    let topic = get_command_topic(&proto, &device_id, &switch_name);
+                    map.insert(topic, SwitchConfig {
+                        group_address: ga,
+                        meter_name: meter.name.clone(),
+                        switch_name,
+                    });
+                }
+            }
+        }
+    }
+
+    map
+}
+
+/// Switch control task - handles MQTT commands and writes to KNX bus
+async fn switch_control_task(
+    client: Arc<KnxClient>,
+    adapter_name: &str,
+    switch_map: HashMap<String, SwitchConfig>,
+    sender: &Sender<Transmission>,
+) -> Result<(), KnxError> {
+    if switch_map.is_empty() {
+        info!("KNX adapter '{}': No switches configured, switch control disabled", adapter_name);
+        // Just wait forever since there's nothing to do
+        loop {
+            tokio::time::sleep(Duration::from_secs(3600)).await;
+        }
+    }
+
+    info!(
+        "KNX adapter '{}': Starting switch control for {} switches",
+        adapter_name,
+        switch_map.len()
+    );
+
+    // Create channel for receiving MQTT commands
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<(String, String)>(32);
+
+    // Subscribe to all switch command topics
+    for topic in switch_map.keys() {
+        let subscribe = SubscribeData {
+            topic: topic.clone(),
+            sender: tx.clone(),
+        };
+        if let Err(e) = sender.send(Transmission::Subscribe(subscribe)).await {
+            error!("KNX adapter '{}': Failed to subscribe to {}: {:?}", adapter_name, topic, e);
+        } else {
+            debug!("KNX adapter '{}': Subscribed to switch topic {}", adapter_name, topic);
+        }
+    }
+
+    // Process incoming commands
+    loop {
+        match rx.recv().await {
+            Some((topic, payload)) => {
+                debug!("KNX adapter '{}': Received switch command: {} = {}", adapter_name, topic, payload);
+
+                if let Some(switch_config) = switch_map.get(&topic) {
+                    let value = match payload.trim().to_uppercase().as_str() {
+                        "ON" | "1" | "TRUE" => Some(vec![0x01u8]),
+                        "OFF" | "0" | "FALSE" => Some(vec![0x00u8]),
+                        _ => {
+                            warn!(
+                                "KNX adapter '{}': Invalid switch payload for {}: {}",
+                                adapter_name, switch_config.switch_name, payload
+                            );
+                            None
+                        }
+                    };
+
+                    if let Some(data) = value {
+                        match client.send_write(switch_config.group_address, &data).await {
+                            Ok(_) => {
+                                info!(
+                                    "KNX adapter '{}': Wrote {} to {} ({}/{})",
+                                    adapter_name,
+                                    if data[0] == 1 { "ON" } else { "OFF" },
+                                    switch_config.group_address,
+                                    switch_config.meter_name,
+                                    switch_config.switch_name
+                                );
+                            }
+                            Err(KnxError::ConnectionClosed) | Err(KnxError::SequenceOverflow) => {
+                                error!(
+                                    "KNX adapter '{}': Connection lost while writing switch, reconnecting",
+                                    adapter_name
+                                );
+                                return Err(KnxError::ConnectionClosed);
+                            }
+                            Err(e) => {
+                                error!(
+                                    "KNX adapter '{}': Failed to write switch {}: {:?}",
+                                    adapter_name, switch_config.switch_name, e
+                                );
+                            }
+                        }
+                    }
+                } else {
+                    debug!("KNX adapter '{}': Unknown switch topic: {}", adapter_name, topic);
+                }
+            }
+            None => {
+                warn!("KNX adapter '{}': Switch command channel closed", adapter_name);
+                return Err(KnxError::ConnectionClosed);
+            }
+        }
+    }
 }
 
 /// Parse a DPT value from raw bytes
@@ -1174,6 +1411,20 @@ fn build_ha_discovery(adapter_name: &str, meter: &KnxMeterConfig) -> HaSensor {
                     .state_class("total_increasing".to_string());
                 disc.add_cmp(format!("energy_{}", phase_suffix), cmp);
             }
+
+            // Phase switch (if configured)
+            if phase.switch_ga.is_some() || phase.switch_state_ga.is_some() {
+                let switch_key = format!("switch_{}", phase_suffix);
+                let cmd_topic = get_command_topic(&proto, &device_id, &switch_key);
+                let cmp = HaComponent2::new()
+                    .name(format!("Switch {}", phase.name))
+                    .platform("switch".to_string())
+                    .del_information("state_class")
+                    .add_information("command_topic", serde_json::Value::from(cmd_topic))
+                    .add_information("payload_on", serde_json::Value::from("ON"))
+                    .add_information("payload_off", serde_json::Value::from("OFF"));
+                disc.add_cmp(switch_key, cmp);
+            }
         }
 
         // Check which phase values are configured
@@ -1218,6 +1469,19 @@ fn build_ha_discovery(adapter_name: &str, meter: &KnxMeterConfig) -> HaSensor {
                 .state_class("measurement".to_string());
             disc.add_cmp("voltage_avg".to_string(), cmp);
         }
+
+        // Global switch (if configured)
+        if meter.switch_ga.is_some() || meter.switch_state_ga.is_some() {
+            let cmd_topic = get_command_topic(&proto, &device_id, &"switch".to_string());
+            let cmp = HaComponent2::new()
+                .name("Switch".to_string())
+                .platform("switch".to_string())
+                .del_information("state_class")
+                .add_information("command_topic", serde_json::Value::from(cmd_topic))
+                .add_information("payload_on", serde_json::Value::from("ON"))
+                .add_information("payload_off", serde_json::Value::from("OFF"));
+            disc.add_cmp("switch".to_string(), cmp);
+        }
     } else {
         // Single-meter configuration
         if meter.voltage_ga.is_some() {
@@ -1254,6 +1518,19 @@ fn build_ha_discovery(adapter_name: &str, meter: &KnxMeterConfig) -> HaSensor {
                 .unit_of_measurement(get_energy_unit(&meter.energy_type).to_string())
                 .state_class("total_increasing".to_string());
             disc.add_cmp("energy".to_string(), cmp);
+        }
+
+        // Global switch (if configured)
+        if meter.switch_ga.is_some() || meter.switch_state_ga.is_some() {
+            let cmd_topic = get_command_topic(&proto, &device_id, &"switch".to_string());
+            let cmp = HaComponent2::new()
+                .name("Switch".to_string())
+                .platform("switch".to_string())
+                .del_information("state_class")
+                .add_information("command_topic", serde_json::Value::from(cmd_topic))
+                .add_information("payload_on", serde_json::Value::from("ON"))
+                .add_information("payload_off", serde_json::Value::from("OFF"));
+            disc.add_cmp("switch".to_string(), cmp);
         }
     }
 

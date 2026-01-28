@@ -1,14 +1,17 @@
 pub mod internal_commands;
 pub mod ha_interface;
 pub mod home_assistant;
+pub mod migration;
 
 use std::collections::HashMap;
 use lazy_static::lazy_static;
 use tokio::sync::RwLock;
 use std::io::Error;
 use crate::mqtt::ha_interface::HaDiscover;
-use crate::mqtt::home_assistant::{HaSensor, HaToJSON};
-use crate::{config::ConfigBases, models::DeviceProtocol};
+use crate::mqtt::home_assistant::HaSensor;
+use crate::mqtt::migration::run_migration_if_needed;
+use crate::config::{ConfigBases, MQTT_DISCOVERY_VERSION_CURRENT};
+use crate::models::DeviceProtocol;
 use crate::{CONFIG, get_config_or_panic, get_unix_ts};
 use log::{debug, error, info};
 use tokio::sync::mpsc::{Receiver, Sender};
@@ -274,15 +277,33 @@ impl MqttManager {
         let (mtx,mrx) = tokio::sync::mpsc::channel(100);
 
         info!("MQTT connection starting up");
-        let config = get_config_or_panic!("mqtt", ConfigBases::Mqtt);
+        let mut config = get_config_or_panic!("mqtt", ConfigBases::Mqtt);
+
+        // Check if migration is needed (will be run async after connection)
+        let needs_migration = config.discovery_version < MQTT_DISCOVERY_VERSION_CURRENT;
+        if needs_migration {
+            info!("MQTT discovery migration pending: version {} -> {}",
+                  config.discovery_version, MQTT_DISCOVERY_VERSION_CURRENT);
+        }
         let mut mqttoptions   = MqttOptions::new(config.client_name.clone(), config.host.clone(), config.port);
         mqttoptions.set_keep_alive(Duration::from_secs(5));
         mqttoptions.set_credentials(config.user.clone(), config.pass.clone());
+
+        // Set last will message for availability - broker publishes "offline" if we disconnect unexpectedly
+        let last_will = rumqttc::LastWill::new(
+            "energy2mqtt/status",
+            "offline".as_bytes().to_vec(),
+            QoS::AtLeastOnce,
+            true  // retain = true so new subscribers see the status
+        );
+        mqttoptions.set_last_will(last_will);
 
         let (client, mut eventloop) = AsyncClient::new(mqttoptions, 10);
 
         // Spawn a new thread to handle the incomming commands
         let reconnect_c = client.clone();
+        let migration_config = config.clone();
+        let migration_needed = needs_migration;
         tokio::spawn( async move {
             info!("MQTT Eventloop started");
 
@@ -292,6 +313,7 @@ impl MqttManager {
             const INITIAL_BACKOFF_SECS: u64 = 1;
             let mut last_error_log = Instant::now();
             let mut consecutive_errors: u32 = 0;
+            let mut migration_done = !migration_needed;
 
             loop {
                 match eventloop.poll().await {
@@ -324,6 +346,46 @@ impl MqttManager {
                             app_status.mqtt_health.last_connected = Some(Instant::now());
                             app_status.mqtt_health.connection_attempts += 1;
                         }
+
+                        // Run migration if needed (only once on first connect)
+                        if !migration_done {
+                            info!("Running MQTT discovery migration...");
+                            let mig_config = migration_config.clone();
+                            match run_migration_if_needed(&mig_config).await {
+                                Ok(true) => {
+                                    info!("Migration completed, updating config version");
+                                    // Update config with new version
+                                    if let Ok(mut cfg) = CONFIG.write() {
+                                        cfg.config.mqtt.discovery_version = MQTT_DISCOVERY_VERSION_CURRENT;
+                                        cfg.dirty = true;
+                                        cfg.save();
+                                        info!("Config updated to discovery version {}", MQTT_DISCOVERY_VERSION_CURRENT);
+                                    }
+                                }
+                                Ok(false) => {
+                                    debug!("No migration was needed");
+                                }
+                                Err(e) => {
+                                    error!("Migration failed: {}", e);
+                                }
+                            }
+                            migration_done = true;
+                        }
+
+                        // Publish "online" availability status (retained)
+                        let online_client = reconnect_c.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) = online_client.publish(
+                                "energy2mqtt/status",
+                                QoS::AtLeastOnce,
+                                true,  // retain
+                                "online"
+                            ).await {
+                                error!("Failed to publish online status: {:?}", e);
+                            } else {
+                                info!("Published online availability status");
+                            }
+                        });
 
                         /* We are connected resubstribe to everything */
                         let callbacks = CALLBACKS.read().await.get_topics().await;
@@ -452,13 +514,27 @@ impl MqttManager {
                     let _ = self.client.publish(topic, QoS::AtLeastOnce, true, serde_json::to_string(&disc).unwrap()).await;
                 },
                 Transmission::AutoDiscovery2(disc) => {
-                    let topic = disc.get_disc_topic();
-                    let payload = serde_json::to_value(&disc.to_json()).unwrap_or_default();
-                    let live_event = LiveEvent::outgoing(LiveEventType::AutoDiscovery, topic.clone(), payload)
-                        .with_retain(true);
-                    let _ = LIVE_EVENTS.send(live_event);
+                    // Send individual discovery messages per entity to avoid MQTT size limits
+                    let discoveries = disc.get_entity_discoveries();
 
-                    let _ = self.client.publish(topic, QoS::AtLeastOnce, true, serde_json::to_string(&disc.to_json()).unwrap()).await;
+                    for entity_disc in discoveries {
+                        let live_event = LiveEvent::outgoing(
+                            LiveEventType::AutoDiscovery,
+                            entity_disc.topic.clone(),
+                            entity_disc.payload.clone()
+                        ).with_retain(true);
+                        let _ = LIVE_EVENTS.send(live_event);
+
+                        let _ = self.client.publish(
+                            entity_disc.topic,
+                            QoS::AtLeastOnce,
+                            true,
+                            serde_json::to_string(&entity_disc.payload).unwrap_or_default()
+                        ).await;
+
+                        // Small delay between discovery messages to not overwhelm the broker
+                        tokio::time::sleep(Duration::from_millis(50)).await;
+                    }
                 },
                 Transmission::Subscribe(subscribe_data) =>  {
                     let mut topic = subscribe_data.topic.clone();

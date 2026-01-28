@@ -10,6 +10,7 @@ use utoipa::ToSchema;
 
 use crate::{config::{ConfigBases, ModbusHubConfig, KnxAdapterConfig, KnxMeterConfig, KnxSwitchConfig, MqttConfig, ConfigHolder, ConfigStatus, ZennerDatahubConfig, OmsConfig}, get_config_or_panic, CONFIG};
 use crate::mqtt::{get_app_status, MqttConnectionStatus, LIVE_EVENTS};
+use crate::mqtt::migration::force_cleanup;
 use rumqttc::{MqttOptions, Client};
 
 
@@ -226,6 +227,7 @@ pub async fn save_mqtt_setup(req: web::Json<MqttSetupRequest>) -> impl Responder
         pass: req.pass.clone(),
         ha_enabled: req.ha_enabled,
         client_name: req.client_name.clone().unwrap_or_else(|| "energy2mqtt".to_string()),
+        discovery_version: crate::config::MQTT_DISCOVERY_VERSION_CURRENT,
     };
 
     // Try to create the config file
@@ -342,6 +344,39 @@ pub async fn ha_reload_config() -> impl Responder {
         "status": "success",
         "message": "Configuration reload requested. Implementation depends on config management system."
     }))
+}
+
+//////////////////// MQTT MIGRATION //////////////////////////////////////////////////////////////////////////////////////
+
+#[utoipa::path(post,
+    path = "/api/v1/mqtt/cleanup",
+    summary = "Force cleanup of old MQTT discovery topics",
+    description = "Scans homeassistant/# for old format e2m discovery topics and deletes them. Use this if you have duplicate entities after upgrading.",
+    responses(
+        (status = 200, description = "Cleanup completed"),
+        (status = 500, description = "Cleanup failed")
+    ),
+)]
+pub async fn force_mqtt_cleanup() -> impl Responder {
+    info!("Force MQTT cleanup requested via API");
+
+    let config = get_config_or_panic!("mqtt", ConfigBases::Mqtt);
+
+    match force_cleanup(&config).await {
+        Ok(_) => {
+            HttpResponse::Ok().json(serde_json::json!({
+                "status": "success",
+                "message": "Old discovery topics have been cleaned up. Restart energy2mqtt to send new discovery messages."
+            }))
+        }
+        Err(e) => {
+            error!("Force cleanup failed: {}", e);
+            HttpResponse::InternalServerError().json(serde_json::json!({
+                "status": "error",
+                "message": format!("Cleanup failed: {}", e)
+            }))
+        }
+    }
 }
 
 //////////////////// MODBUS //////////////////////////////////////////////////////////////////////////////////////////////
@@ -1056,6 +1091,8 @@ impl ApiManager {
                 .route("/api/v1/ha/restart", web::post().to(ha_restart_service))
                 .route("/api/v1/ha/config/save", web::post().to(ha_save_config))
                 .route("/api/v1/ha/config/reload", web::post().to(ha_reload_config))
+                // MQTT migration
+                .route("/api/v1/mqtt/cleanup", web::post().to(force_mqtt_cleanup))
                 // Prometheus
                 .route("/prometheus/metrics", web::get().to(e2m_prometheus_generic))
                 .route("/prometheus/metering", web::get().to(e2m_prometheus_metering))
