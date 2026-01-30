@@ -1,5 +1,5 @@
 use serde_json::Value;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, watch};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use crate::config::{ConfigChange, ConfigOperation, VictronConfig};
@@ -11,11 +11,25 @@ use log::{debug, error, info};
 use tokio::sync::mpsc::Sender;
 use rumqttc::{AsyncClient, Event, MqttOptions, Packet};
 use std::collections::HashMap;
+use std::fs::read;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{self, Duration};
 
 pub mod utils;
 pub mod detect;
+
+/// Cluster identifier for filtering exports
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum VictronCluster {
+    GridMetering,
+    Battery,
+    Solar,
+    InverterFlow,
+    SystemOverview,
+    PhaseDetails,
+    Environment,
+    Diagnostics,
+}
 
 pub struct VictronManager {
     sender: Sender<Transmission>,
@@ -29,6 +43,7 @@ pub struct Topic {
     pub payload: String,
     pub updated: u64,
     pub json_key: String,
+    pub device_id: String,
     pub need_read: bool,
 }
 
@@ -38,6 +53,7 @@ impl Topic {
             payload: payload,
             updated: get_unix_ts(),
             json_key: "".to_string(),
+            device_id: "".to_string(),
             need_read: true,
         }
     }
@@ -47,6 +63,17 @@ impl Topic {
             payload: payload,
             updated: get_unix_ts(),
             json_key: key,
+            device_id: "".to_string(),
+            need_read: true,
+        }
+    }
+
+    pub fn new_with_device(payload: String, key: String, device_id: String) -> Self {
+        return Topic {
+            payload: payload,
+            updated: get_unix_ts(),
+            json_key: key,
+            device_id: device_id,
             need_read: true,
         }
     }
@@ -56,6 +83,7 @@ impl Topic {
             payload: payload,
             updated: get_unix_ts(),
             json_key: old.json_key.clone(),
+            device_id: old.device_id.clone(),
             need_read: true,
         }
     }
@@ -65,6 +93,7 @@ impl Topic {
             payload: "".to_string(),
             updated: 0,
             json_key: "".to_string(),
+            device_id: "".to_string(),
             need_read: true,
         }
     }
@@ -75,7 +104,9 @@ pub struct VictronData {
     pub portal_id: String,
     pub read_topics: Vec<String>,
     pub topic_mapping: HashMap<String, Option<Topic>>,
-    pub conf: VictronConfig
+    /// Maps topic to its cluster for filtering
+    pub topic_clusters: HashMap<String, VictronCluster>,
+    pub conf: VictronConfig,
 }
 
 impl VictronData {
@@ -84,8 +115,36 @@ impl VictronData {
             portal_id: "".to_string(),
             read_topics: Vec::new(),
             topic_mapping: HashMap::new(),
-            conf: conf.clone()
+            topic_clusters: HashMap::new(),
+            conf: conf.clone(),
         };
+    }
+
+    /// Check if a cluster is enabled in the config
+    pub fn is_cluster_enabled(&self, cluster: &VictronCluster) -> bool {
+        match cluster {
+            VictronCluster::GridMetering => self.conf.clusters.grid_metering.enabled,
+            VictronCluster::Battery => self.conf.clusters.battery.enabled,
+            VictronCluster::Solar => self.conf.clusters.solar.enabled,
+            VictronCluster::InverterFlow => self.conf.clusters.inverter_flow.enabled,
+            VictronCluster::SystemOverview => self.conf.clusters.system_overview.enabled,
+            VictronCluster::PhaseDetails => self.conf.clusters.phase_details.enabled,
+            VictronCluster::Environment => self.conf.clusters.environment.enabled,
+            VictronCluster::Diagnostics => self.conf.clusters.diagnostics.enabled,
+        }
+    }
+
+    /// Register a topic with its cluster
+    pub fn register_topic_cluster(&mut self, json_key: &str, cluster: VictronCluster) {
+        self.topic_clusters.insert(json_key.to_string(), cluster);
+    }
+
+    /// Check if a topic's cluster is enabled
+    pub fn is_topic_enabled(&self, json_key: &str) -> bool {
+        match self.topic_clusters.get(json_key) {
+            Some(cluster) => self.is_cluster_enabled(cluster),
+            None => true, // Unknown topics are enabled by default
+        }
     }
 
     pub fn set_portal(&mut self, portal: String) {
@@ -99,6 +158,23 @@ impl VictronData {
         }
 
         self.read_topics.push(topic);
+    }
+}
+
+/// Round a JSON value to 3 decimal places if it's a float
+fn round_value(val: Value) -> Value {
+    match val {
+        Value::Number(n) => {
+            if let Some(f) = n.as_f64() {
+                let rounded = (f * 1000.0).round() / 1000.0;
+                serde_json::Number::from_f64(rounded)
+                    .map(Value::Number)
+                    .unwrap_or_else(|| Value::Number(n))
+            } else {
+                Value::Number(n)
+            }
+        }
+        other => other,
     }
 }
 
@@ -123,8 +199,9 @@ impl VictronManager {
                 if change.operation != ConfigOperation::ADD || change.base != "victron" {
                     continue;
                 }
-                
+
                 /* we need to read the config now as this change is about our part of the code */
+                self.config = get_config_or_panic!("victron", ConfigBases::Victron);
                 break;
             }
         }
@@ -194,9 +271,9 @@ impl VictronManager {
                                             Some(old) => { Topic::create_from(old, payload.clone())},
                                             None => { Topic::new(payload.clone()) },
                                         };
-                        
+
                                         data.topic_mapping.insert(
-                                                    topic, 
+                                                    topic,
                                                     Some(tdata)
                                                     );
                                 } else {
@@ -247,7 +324,48 @@ impl VictronManager {
                 
                 self.threads.push(handle);
 
+                let data_clone = data.clone();
+                let client_clone = client.clone();
+                handle = tokio::spawn(async move {
+                    let duration = Duration::from_secs(60);
+                    loop {
+                        /* Every minute we will issue a read request if any of our data is older than 60 seconds */
+                        sleep(duration).await;
 
+                        let now = get_unix_ts();
+                        let mut need_read = false;
+
+                        let topics = data_clone.lock().await.topic_mapping.clone();
+
+                        for (key, topic) in topics {
+                            if let Some(t) = topic {
+                                if t.device_id.is_empty() || t.json_key.starts_with("_") {
+                                    continue; /* Only for the data used in the devices */
+                                }
+                                if t.updated < now - 60 {
+                                    /* For the first outdated value to be found we exit */
+                                    need_read = true;
+                                    break;
+                                }
+                            }
+                        }
+
+
+                        if need_read {
+                            let read_topics = data_clone.lock().await.read_topics.clone();
+
+                            for topic in read_topics {
+                                debug!("Sending read request for {topic}");
+                                let _ = client_clone.publish(topic, 
+                                            rumqttc::QoS::AtLeastOnce, false, "").await;
+                            }
+                        }
+                    }
+                });
+
+                self.threads.push(handle);
+
+                let data_clone = data.clone();
                 let host = conf.broker_host.clone();
                 let port = conf.broker_port;
                 let send_dupe = self.sender.clone();
@@ -270,31 +388,18 @@ impl VictronManager {
                         }
 
                         let _ = detect::run_initial_detection(&client, &data, &send_dupe, format!("[{host}:{port}]")).await;
-                        
+                        let mut read_out = true;
+
                         loop {
                             /* Trigger reading, but copy the list because we are not allowed to keep the lock */
-                            let read_topics = data.lock().await.read_topics.clone();
-                            let mut wait_time = 0u64;
-                            for topic in read_topics {
-                                debug!("Starting to read from {topic}");
-                                let _ = client.publish(topic, 
-                                            rumqttc::QoS::AtLeastOnce, false, "").await;
-                                /* Each topic adds 1 second to the read timeout because we should never flood the GX device */
-                                wait_time += 1;
-                            }
+                            sleep(Duration::from_secs(5u64)).await;
 
-                            sleep(Duration::from_secs(wait_time)).await;
-                            
                             let config = data.lock().await.conf.clone();
-
-                            let mut meter_data = MeteringData::new().unwrap();
-                            meter_data.meter_name = config.name.clone();
-                            meter_data.protocol = DeviceProtocol::Victron;
-                            meter_data.id = get_id("victron".to_string(), &config.name.clone());
-                            meter_data.transmission_time = get_unix_ts();
-                            meter_data.metered_time = meter_data.transmission_time;
-        
                             let topics = data.lock().await.topic_mapping.clone();
+                            let timestamp = get_unix_ts();
+
+                            // Group topics by device_id
+                            let mut device_data: HashMap<String, HashMap<String, Value>> = HashMap::new();
 
                             for entry in topics.iter() {
                                 let tname = entry.0.clone();
@@ -310,6 +415,13 @@ impl VictronManager {
                                 /* skip internal json data */
                                 if tdata.json_key.starts_with("_") { continue; }
 
+                                /* Skip topics without a device_id (hub-level data) */
+                                let device_id = if tdata.device_id.is_empty() {
+                                    config.name.clone().to_lowercase().replace(" ", "_").replace("-", "_")
+                                } else {
+                                    tdata.device_id.clone()
+                                };
+
                                 /* We need to parse the json messages, we do it here because we have time */
                                 let doc = serde_json::from_str::<Value>(&tdata.payload);
                                 match doc {
@@ -318,18 +430,36 @@ impl VictronManager {
                                     }
                                     Ok(v) => {
                                         match v.get("value") {
-                                            Some(v) => { meter_data.metered_values.insert(tdata.json_key, v.clone()); }
+                                            Some(val) => {
+                                                device_data
+                                                    .entry(device_id)
+                                                    .or_insert_with(HashMap::new)
+                                                    .insert(tdata.json_key, round_value(val.clone()));
+                                            }
                                             None => { info!("[{host}:{port} {tname}] Malformed JSON found") }
                                         }
-                                        
                                     }
                                 }
                             }
-                            
-                            /* send the meter reading to the MQTT thread */
-                            let _ = send_dupe.send(Transmission::Metering(meter_data)).await;
 
-                            sleep(duration).await;
+                            /* Send meter readings for each device cluster */
+                            for (device_id, values) in device_data {
+                                if values.is_empty() { continue; }
+
+                                let mut meter_data = MeteringData::new().unwrap();
+                                meter_data.meter_name = device_id.clone();
+                                meter_data.protocol = DeviceProtocol::Victron;
+                                meter_data.id = get_id("victron".to_string(), &device_id);
+                                meter_data.transmission_time = timestamp;
+                                meter_data.metered_time = timestamp;
+
+                                // Convert HashMap to serde_json::Map
+                                for (key, value) in values {
+                                    meter_data.metered_values.insert(key, value);
+                                }
+
+                                let _ = send_dupe.send(Transmission::Metering(meter_data)).await;
+                            }
                         }
                     }
                 });
@@ -355,6 +485,9 @@ impl VictronManager {
             }
 
             self.threads.clear();
+
+            /* Reload the config before restarting */
+            self.config = get_config_or_panic!("victron", ConfigBases::Victron);
         }
     }
 }

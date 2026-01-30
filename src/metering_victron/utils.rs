@@ -4,7 +4,7 @@ use rumqttc::AsyncClient;
 use serde_json::Value;
 use tokio::{sync::Mutex, time::sleep};
 
-use crate::metering_victron::{Topic, VictronData};
+use crate::metering_victron::{Topic, VictronCluster, VictronData};
 
 pub async fn get_portal(data: &Arc<Mutex<VictronData>>) -> String {
     return data.lock().await.portal_id.clone();
@@ -21,6 +21,27 @@ pub async fn set_topic(client: &AsyncClient, data: &Arc<Mutex<VictronData>>, key
     }
 
     lock.topic_mapping.insert(key.clone(), topic);
+}
+
+/// Set a topic and register its cluster
+pub async fn set_topic_with_cluster(
+    client: &AsyncClient,
+    data: &Arc<Mutex<VictronData>>,
+    key: &String,
+    topic: Option<Topic>,
+    json_key: &str,
+    cluster: VictronCluster,
+) {
+    let mut lock = data.lock().await;
+
+    if !lock.topic_mapping.contains_key(key) {
+        drop(lock);
+        let _ = client.subscribe(key, rumqttc::QoS::AtLeastOnce).await;
+        lock = data.lock().await;
+    }
+
+    lock.topic_mapping.insert(key.clone(), topic);
+    lock.topic_clusters.insert(json_key.to_string(), cluster);
 }
 
 pub async fn get_topic(data: &Arc<Mutex<VictronData>>, key: &String) -> Option<Topic> {
@@ -146,7 +167,7 @@ pub async fn read_topic_value(client: &AsyncClient, data: &Arc<Mutex<VictronData
     let t = Topic::new_with_key("".to_string(), json_key);
     set_topic(client, data, &topic, Some(t)).await;
 
-    let _ = client.publish(topic.clone().replacen("N", "R", 1), 
+    let _ = client.publish(topic.clone().replacen("N", "R", 1),
                             rumqttc::QoS::AtLeastOnce, false, "").await;
 
     /* We wait up to five second */
@@ -172,4 +193,42 @@ pub async fn read_topic_value(client: &AsyncClient, data: &Arc<Mutex<VictronData
     }
 
     return Some(victron_value_to_value(&topic_data.payload, Value::Null));
+}
+
+/// Read a u64 topic and register it with a cluster
+pub async fn read_topic_u64_cluster(
+    client: &AsyncClient,
+    data: &Arc<Mutex<VictronData>>,
+    topic: &String,
+    json_key: String,
+    cluster: VictronCluster,
+) -> Option<u64> {
+    let t = Topic::new_with_key("".to_string(), json_key.clone());
+    set_topic_with_cluster(client, data, &topic, Some(t), &json_key, cluster).await;
+
+    let _ = client.publish(topic.clone().replacen("N", "R", 1),
+                            rumqttc::QoS::AtLeastOnce, false, "").await;
+
+    let mut res: Option<Topic> = None;
+    for _ in 0..=500 {
+        sleep(Duration::from_millis(10)).await;
+        res = get_topic(data, &topic).await;
+        if res.is_some() {
+            if res.clone().unwrap().payload != "" {
+                break;
+            }
+        }
+    }
+
+    if res.is_none() {
+        return None;
+    }
+
+    let topic_data = res.clone().unwrap();
+    if topic_data.payload == "" {
+        debug!("{topic} No payload found, so returning default ");
+        return None;
+    }
+
+    return Some(victron_value_to_u64(&topic_data.payload, 0));
 }

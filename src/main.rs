@@ -1,6 +1,6 @@
-use energy2mqtt::{ApiManager, CONFIG, DeviceManager, Iec62056Manager, KnxManager, ModbusManger, OmsManager, SmlManager, VictronManager, ZennerDatahubManager, mqtt::{MqttManager, internal_commands::CommandHandler, publish_uptime}};
+use energy2mqtt::{ApiManager, CONFIG, DeviceManager, Iec62056Manager, KnxManager, ModbusManger, OmsManager, SmlManager, VictronManager, ZennerDatahubManager, init_discovered_devices, get_discovered_devices, mqtt::{MqttManager, internal_commands::CommandHandler, publish_uptime}};
 use tokio::task::JoinHandle;
-use std::{env, time::Duration};
+use std::{env, path::PathBuf, time::Duration};
 use log::info;
 
 
@@ -9,8 +9,17 @@ async fn main() -> std::io::Result<()> {
     // Initialize logging
     let default_filter =  std::env::var("E2M_LOG_LEVEL").unwrap_or("info".to_string());
     env_logger::init_from_env(env_logger::Env::new().default_filter_or(default_filter));
-    
+
     env::set_var("RUST_BACKTRACE", "1");
+
+    // Initialize discovered devices store
+    let discovered_devices_path = {
+        let config = CONFIG.read().unwrap();
+        let base_path = &config.base_path;
+        PathBuf::from(base_path).join(&config.config.storage.discovered_devices_path)
+    };
+    init_discovered_devices(discovered_devices_path);
+    info!("Discovered devices store initialized");
 
     // we need a channel for the subparts to send metering data to the handler
     let (mut mqtt, tx) = MqttManager::new().unwrap();
@@ -89,14 +98,24 @@ async fn main() -> std::io::Result<()> {
         let _ = api.start_thread().await;
     }));
 
-    /* Make sure to handle the dirty flag of the configuration */
+    /* Make sure to handle the dirty flag of the configuration and discovered devices */
     threads.push(tokio::spawn(async move {
         loop {
             let _ = tokio::time::sleep(Duration::from_secs(60)).await;
+
+            // Save config if dirty
             let mut c = CONFIG.write().unwrap();
             let dirty = c.is_dirty();
             if dirty {
                 c.save();
+            }
+            drop(c);
+
+            // Save discovered devices if dirty
+            if let Some(store) = get_discovered_devices() {
+                if let Err(e) = store.save_if_dirty() {
+                    log::error!("Failed to save discovered devices: {}", e);
+                }
             }
         }
     }));

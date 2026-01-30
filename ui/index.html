@@ -221,6 +221,10 @@
                     <span class="material-icons">water_drop</span>
                     <span>Zenner Datahub</span>
                 </a>
+                <a href="#" class="nav-item" data-page="victron">
+                    <span class="material-icons">solar_power</span>
+                    <span>Victron</span>
+                </a>
                 <a href="#" class="nav-item" data-page="oms">
                     <span class="material-icons">sensors</span>
                     <span>OMS Meters</span>
@@ -291,8 +295,16 @@
                                 <h3>Modbus</h3>
                             </div>
                             <div class="card-content">
-                                <div class="stat-value" id="modbusHubCount">0</div>
-                                <div class="stat-label">Configured Hubs</div>
+                                <div class="stat-row">
+                                    <div class="stat-item">
+                                        <div class="stat-value" id="modbusHubCount">0</div>
+                                        <div class="stat-label">Hubs</div>
+                                    </div>
+                                    <div class="stat-item">
+                                        <div class="stat-value" id="modbusDeviceCount">0</div>
+                                        <div class="stat-label">Devices</div>
+                                    </div>
+                                </div>
                             </div>
                             <div class="card-actions">
                                 <button class="text-button" data-page="modbus">Manage</button>
@@ -305,8 +317,16 @@
                                 <h3>KNX</h3>
                             </div>
                             <div class="card-content">
-                                <div class="stat-value" id="knxAdapterCount">0</div>
-                                <div class="stat-label">Configured Adapters</div>
+                                <div class="stat-row">
+                                    <div class="stat-item">
+                                        <div class="stat-value" id="knxAdapterCount">0</div>
+                                        <div class="stat-label">Adapters</div>
+                                    </div>
+                                    <div class="stat-item">
+                                        <div class="stat-value" id="knxMeterCount">0</div>
+                                        <div class="stat-label">Meters</div>
+                                    </div>
+                                </div>
                             </div>
                             <div class="card-actions">
                                 <button class="text-button" data-page="knx">Manage</button>
@@ -319,8 +339,16 @@
                                 <h3>Zenner Datahub</h3>
                             </div>
                             <div class="card-content">
-                                <div class="stat-value" id="zennerInstanceCount">0</div>
-                                <div class="stat-label">Configured Instances</div>
+                                <div class="stat-row">
+                                    <div class="stat-item">
+                                        <div class="stat-value" id="zennerInstanceCount">0</div>
+                                        <div class="stat-label">Instances</div>
+                                    </div>
+                                    <div class="stat-item">
+                                        <div class="stat-value" id="zennerDiscoveredCount">0</div>
+                                        <div class="stat-label">Devices</div>
+                                    </div>
+                                </div>
                             </div>
                             <div class="card-actions">
                                 <button class="text-button" data-page="zenner">Manage</button>
@@ -338,6 +366,20 @@
                             </div>
                             <div class="card-actions">
                                 <button class="text-button" data-page="oms">Manage</button>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-header">
+                                <span class="material-icons">solar_power</span>
+                                <h3>Victron</h3>
+                            </div>
+                            <div class="card-content">
+                                <div class="stat-value" id="victronInstanceCount">0</div>
+                                <div class="stat-label">GX Devices</div>
+                            </div>
+                            <div class="card-actions">
+                                <button class="text-button" data-page="victron">Manage</button>
                             </div>
                         </div>
                     </div>
@@ -382,6 +424,42 @@
                     </div>
                     <div class="cards-list" id="zennerInstancesList">
                         <!-- Zenner Datahub instances will be rendered here -->
+                    </div>
+
+                    <!-- Discovered Devices Section -->
+                    <div class="page-header" style="margin-top: 2rem;">
+                        <h3>Discovered Devices</h3>
+                    </div>
+                    <div class="info-banner">
+                        <span class="material-icons">info</span>
+                        <div>
+                            <strong>Auto-discovered Devices</strong>
+                            <p>Devices are automatically discovered when they send data through Zenner Datahub. You can control which devices are exported to Home Assistant.</p>
+                        </div>
+                    </div>
+                    <div class="cards-list" id="zennerDiscoveredDevicesList">
+                        <!-- Discovered devices will be rendered here -->
+                    </div>
+                </div>
+
+                <!-- Victron Page -->
+                <div class="page" id="page-victron">
+                    <div class="page-header">
+                        <h3>Victron GX Devices</h3>
+                        <button class="fab" id="addVictronInstance">
+                            <span class="material-icons">add</span>
+                            <span>Add GX Device</span>
+                        </button>
+                    </div>
+                    <div class="info-banner">
+                        <span class="material-icons">info</span>
+                        <div>
+                            <strong>Victron Energy Integration</strong>
+                            <p>Connect to Victron GX devices (Cerbo GX, Venus GX, etc.) via their MQTT interface. Enable the MQTT feature in your GX device's settings under Services.</p>
+                        </div>
+                    </div>
+                    <div class="cards-list" id="victronInstancesList">
+                        <!-- Victron instances will be rendered here -->
                     </div>
                 </div>
 
@@ -1149,6 +1227,186 @@
             <div class="dialog-actions">
                 <button class="text-button dialog-cancel">Cancel</button>
                 <button class="filled-button" id="omsMeterSubmit">Add Meter</button>
+            </div>
+        </div>
+
+        <!-- Discovered Device Dialog -->
+        <div class="dialog" id="discoveredDeviceDialog">
+            <div class="dialog-header">
+                <h3 id="discoveredDeviceDialogTitle">Edit Device</h3>
+                <button class="icon-button dialog-close">
+                    <span class="material-icons">close</span>
+                </button>
+            </div>
+            <div class="dialog-content">
+                <form id="discoveredDeviceForm">
+                    <input type="hidden" id="discoveredDeviceProtocol">
+                    <input type="hidden" id="discoveredDeviceInstance">
+                    <input type="hidden" id="discoveredDeviceId">
+                    <div class="form-group">
+                        <label for="discoveredDeviceName">Friendly Name</label>
+                        <input type="text" id="discoveredDeviceName" placeholder="e.g., Kitchen Water Meter">
+                    </div>
+                    <div class="form-group">
+                        <label class="switch-label">
+                            <span>Export to Home Assistant</span>
+                            <input type="checkbox" id="discoveredDeviceExport" checked>
+                            <span class="switch"></span>
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label for="discoveredDeviceArea">Home Assistant Area (optional)</label>
+                        <input type="text" id="discoveredDeviceArea" placeholder="e.g., Kitchen">
+                    </div>
+                    <div class="form-group">
+                        <label for="discoveredDeviceNotes">Notes (optional)</label>
+                        <input type="text" id="discoveredDeviceNotes" placeholder="e.g., Test device, ignore">
+                    </div>
+                    <div class="info-box" style="margin-top: var(--spacing-lg);">
+                        <span class="material-icons">info</span>
+                        <div>
+                            <strong>Device Info</strong>
+                            <p>
+                                <strong>ID:</strong> <span id="discoveredDeviceIdDisplay" class="monospace-text"></span><br>
+                                <strong>Model:</strong> <span id="discoveredDeviceModel"></span><br>
+                                <strong>First seen:</strong> <span id="discoveredDeviceFirstSeen"></span><br>
+                                <strong>Last seen:</strong> <span id="discoveredDeviceLastSeen"></span>
+                            </p>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="dialog-actions">
+                <button class="text-button" id="discoveredDeviceForget" style="margin-right: auto; color: var(--error-color);">
+                    <span class="material-icons" style="font-size: 18px; vertical-align: middle;">delete</span>
+                    Forget Device
+                </button>
+                <button class="text-button dialog-cancel">Cancel</button>
+                <button class="filled-button" id="discoveredDeviceSubmit">Save</button>
+            </div>
+        </div>
+
+        <!-- Victron Instance Dialog -->
+        <div class="dialog dialog-large" id="victronInstanceDialog">
+            <div class="dialog-header">
+                <h3 id="victronInstanceDialogTitle">Add Victron GX Device</h3>
+                <button class="icon-button dialog-close">
+                    <span class="material-icons">close</span>
+                </button>
+            </div>
+            <div class="dialog-content">
+                <form id="victronInstanceForm">
+                    <input type="hidden" id="victronInstanceEditName">
+                    <div class="form-group">
+                        <label for="victronInstanceName">Device Name *</label>
+                        <input type="text" id="victronInstanceName" required placeholder="e.g., Solar System">
+                    </div>
+
+                    <h4 class="form-section-title">MQTT Connection</h4>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="victronBrokerHost">GX Device Host *</label>
+                            <input type="text" id="victronBrokerHost" required placeholder="e.g., 192.168.1.50">
+                        </div>
+                        <div class="form-group">
+                            <label for="victronBrokerPort">MQTT Port</label>
+                            <input type="number" id="victronBrokerPort" value="1883" min="1" max="65535">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="victronClientName">Client Name</label>
+                            <input type="text" id="victronClientName" placeholder="e.g., energy2mqtt_victron">
+                            <span class="form-hint">Leave empty for auto-generated name</span>
+                        </div>
+                        <div class="form-group">
+                            <label for="victronUpdateInterval">Update Interval (s)</label>
+                            <input type="number" id="victronUpdateInterval" value="10" min="5" max="3600">
+                            <span class="form-hint">How often to publish data</span>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="switch-label">
+                            <span>Enabled</span>
+                            <input type="checkbox" id="victronEnabled" checked>
+                            <span class="switch"></span>
+                        </label>
+                    </div>
+
+                    <h4 class="form-section-title">Data Clusters</h4>
+                    <p class="form-hint" style="margin-bottom: 12px;">Select which data clusters to export to Home Assistant. Disable unused clusters to reduce entity count.</p>
+
+                    <div class="cluster-grid">
+                        <div class="cluster-item">
+                            <label class="switch-label">
+                                <span>Grid Metering</span>
+                                <input type="checkbox" id="victronClusterGrid" checked>
+                                <span class="switch"></span>
+                            </label>
+                            <span class="form-hint">Grid import/export energy and power (essential for HA Energy Dashboard)</span>
+                        </div>
+                        <div class="cluster-item">
+                            <label class="switch-label">
+                                <span>Battery</span>
+                                <input type="checkbox" id="victronClusterBattery" checked>
+                                <span class="switch"></span>
+                            </label>
+                            <span class="form-hint">SoC, power, temperature, voltage</span>
+                            <div class="cluster-suboption" id="victronBatteryCellDataOption">
+                                <label class="switch-label">
+                                    <span>Include cell data</span>
+                                    <input type="checkbox" id="victronClusterBatteryCellData" checked>
+                                    <span class="switch"></span>
+                                </label>
+                                <span class="form-hint">Pylontech min/max cell voltage/temperature</span>
+                            </div>
+                        </div>
+                        <div class="cluster-item">
+                            <label class="switch-label">
+                                <span>Solar</span>
+                                <input type="checkbox" id="victronClusterSolar" checked>
+                                <span class="switch"></span>
+                            </label>
+                            <span class="form-hint">PV yield, charger state, daily production</span>
+                        </div>
+                        <div class="cluster-item">
+                            <label class="switch-label">
+                                <span>System Overview</span>
+                                <input type="checkbox" id="victronClusterSystem" checked>
+                                <span class="switch"></span>
+                            </label>
+                            <span class="form-hint">Total PV, consumption, system state</span>
+                        </div>
+                        <div class="cluster-item">
+                            <label class="switch-label">
+                                <span>Inverter Flow</span>
+                                <input type="checkbox" id="victronClusterInverter">
+                                <span class="switch"></span>
+                            </label>
+                            <span class="form-hint">Detailed AC in/out energy flow (advanced)</span>
+                        </div>
+                        <div class="cluster-item">
+                            <label class="switch-label">
+                                <span>Phase Details</span>
+                                <input type="checkbox" id="victronClusterPhase">
+                                <span class="switch"></span>
+                            </label>
+                            <span class="form-hint">Per-phase voltage, current, power (advanced)</span>
+                        </div>
+                        <div class="cluster-item">
+                            <label class="switch-label">
+                                <span>Environment</span>
+                                <input type="checkbox" id="victronClusterEnvironment">
+                                <span class="switch"></span>
+                            </label>
+                            <span class="form-hint">Temperature and tank sensors</span>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="dialog-actions">
+                <button class="text-button dialog-cancel">Cancel</button>
+                <button class="filled-button" id="victronInstanceSubmit">Add Device</button>
             </div>
         </div>
 

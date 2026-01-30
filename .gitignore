@@ -2,3 +2,5 @@
 /target
 /config
 e2m.yaml
+backup.yaml
+discovered_devices.yaml

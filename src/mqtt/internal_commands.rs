@@ -28,21 +28,20 @@ impl CommandHandler {
         let _ = self.sender.send(register).await;
 
         /* We are not using the HADiscover and HAComponent stuff here because we know the json  */
-        let json = r###"
-        {
-          "dev": {
+        let json = format!(r###"{{
+          "dev": {{
             "ids":"e2m_management",
             "name":"energy2mqtt Bridge",
             "manufacturer":"energy2mqtt",
             "model":"Bridge"
-          },
-          "o": {
+          }},
+          "o": {{
             "name":"energy2mqtt",
-            "sw_version":"0.1.1",
+            "sw_version":"{}",
             "support_url":"https://energy2mqtt.org"
-          },
-          "cmps":{
-            "restart": {
+          }},
+          "cmps":{{
+            "restart": {{
               "p":"button",
               "device_class":"restart",
               "name":"restart",
@@ -51,8 +50,8 @@ impl CommandHandler {
               "unique_id":"e2m_management_bridge_restart",
               "command_topic": "energy2mqtt/mgt/command",
               "entity_category": "config"
-            },
-            "uptime": {
+            }},
+            "uptime": {{
               "p":"sensor",
               "name":"uptime",
               "object_id":"uptime",
@@ -61,13 +60,13 @@ impl CommandHandler {
               "state_class": "measurement",
               "unit_of_measurement": "s",
               "entity_category": "diagnostic"
-            }
-          }
-        }"###;
+            }}
+          }}
+        }}"###, crate::VERSION);
 
         let p = Transmission::Publish(PublishData {
             topic: "homeassistant/device/e2m_bridge/config".to_string(),
-            payload: json.to_string(),
+            payload: json,
             qos: 0,
             retain: true,
         });

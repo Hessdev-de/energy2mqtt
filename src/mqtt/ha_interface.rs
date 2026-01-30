@@ -252,7 +252,7 @@ impl HaDiscover {
             }, 
             o: HaOrigin {
                 name: "energy2mqtt".to_string(),
-                sw_version: "0.1.1".to_string(),
+                sw_version: crate::VERSION.to_string(),
                 support_url: "https://energy2mqtt.org".to_string(),
             },
             cmps: serde_json::Map::new(),
@@ -272,9 +272,8 @@ impl HaDiscover {
             }, 
             o: HaOrigin {
                 name: "energy2mqtt".to_string(),
-                sw_version: "0.1.1".to_string(),
+                sw_version: crate::VERSION.to_string(),
                 support_url: "https://energy2mqtt.org".to_string(),
-                
             },
             cmps: serde_json::Map::new(),
             state_topic: format!("energy2mqtt/devs/{}/{}", proto, topic),

@@ -3,10 +3,14 @@
 # we use the rust build container
 FROM docker.io/rust:latest as builder
 
+# Version to embed in the binary (git tag or branch name)
+ARG BUILD_VERSION=dev
+ENV BUILD_VERSION=${BUILD_VERSION}
+
 # Copy our need files and run cargo build and install
 WORKDIR /usr/src/energy2mqtt
 COPY src src
-COPY Cargo.toml .
+COPY Cargo.toml Cargo.lock ./
 RUN cargo install --path . --root /build/usr
 
 # Copy the files which are static for now

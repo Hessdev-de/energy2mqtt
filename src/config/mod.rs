@@ -45,7 +45,7 @@ pub struct MqttConfig {
 }
 
 fn db_dbtype_default() -> String {return "sqlite".to_string() }
-fn db_uri_default() -> String { return "devices.db".to_string() }
+fn db_uri_default() -> String { return "config/devices.db".to_string() }
 
 #[derive(Deserialize, Serialize, Clone)]
 pub struct DatabaseConfig {
@@ -53,6 +53,21 @@ pub struct DatabaseConfig {
     pub dbtype: String,
     #[serde(default="db_uri_default")]
     pub uri: String,
+}
+
+fn discovered_devices_path_default() -> String { "discovered_devices.yaml".to_string() }
+
+#[derive(Deserialize, Serialize, Clone)]
+pub struct StorageConfig {
+    /// Path to the discovered devices file
+    #[serde(default="discovered_devices_path_default")]
+    pub discovered_devices_path: String,
+}
+
+fn storage_default() -> StorageConfig {
+    StorageConfig {
+        discovered_devices_path: discovered_devices_path_default(),
+    }
 }
 
 #[derive(Deserialize, Serialize, Clone, ToSchema)]
@@ -127,16 +142,129 @@ pub struct OmsConfig {
     pub key: String,
 }
 
+/// Configuration for a single Victron cluster
+#[derive(Deserialize, Serialize, Clone, ToSchema, Debug)]
+pub struct VictronClusterConfig {
+    #[serde(default = "victron_cluster_enabled_default")]
+    pub enabled: bool,
+}
+
+fn victron_cluster_enabled_default() -> bool { true }
+
+/// Battery cluster options
+#[derive(Deserialize, Serialize, Clone, ToSchema, Debug)]
+pub struct VictronBatteryClusterConfig {
+    #[serde(default = "victron_cluster_enabled_default")]
+    pub enabled: bool,
+    /// Include Pylontech cell-level data (min/max cell voltage/temperature)
+    #[serde(default = "victron_cluster_enabled_default")]
+    pub include_cell_data: bool,
+}
+
+fn victron_battery_cluster_default() -> VictronBatteryClusterConfig {
+    VictronBatteryClusterConfig {
+        enabled: true,
+        include_cell_data: true,
+    }
+}
+
+/// All Victron export clusters
+#[derive(Deserialize, Serialize, Clone, ToSchema, Debug)]
+pub struct VictronClustersConfig {
+    /// Grid import/export energy and power (essential for HA Energy Dashboard)
+    #[serde(default = "victron_cluster_grid_default")]
+    pub grid_metering: VictronClusterConfig,
+
+    /// Battery SoC, power, temperature
+    #[serde(default = "victron_battery_cluster_default")]
+    pub battery: VictronBatteryClusterConfig,
+
+    /// PV yield and charger status
+    #[serde(default = "victron_cluster_solar_default")]
+    pub solar: VictronClusterConfig,
+
+    /// Detailed energy flow through inverter (advanced)
+    #[serde(default = "victron_cluster_inverter_default")]
+    pub inverter_flow: VictronClusterConfig,
+
+    /// Total PV, consumption, system state
+    #[serde(default = "victron_cluster_system_default")]
+    pub system_overview: VictronClusterConfig,
+
+    /// Per-phase voltage, current, power (advanced)
+    #[serde(default = "victron_cluster_phase_default")]
+    pub phase_details: VictronClusterConfig,
+
+    /// Temperature and tank sensors
+    #[serde(default = "victron_cluster_env_default")]
+    pub environment: VictronClusterConfig,
+
+    /// Error codes, alarms, device status
+    #[serde(default = "victron_cluster_diag_default")]
+    pub diagnostics: VictronClusterConfig,
+}
+
+fn victron_cluster_grid_default() -> VictronClusterConfig {
+    VictronClusterConfig { enabled: true }
+}
+
+fn victron_cluster_solar_default() -> VictronClusterConfig {
+    VictronClusterConfig { enabled: true }
+}
+
+fn victron_cluster_inverter_default() -> VictronClusterConfig {
+    VictronClusterConfig { enabled: false }  // Advanced, disabled by default
+}
+
+fn victron_cluster_system_default() -> VictronClusterConfig {
+    VictronClusterConfig { enabled: true }
+}
+
+fn victron_cluster_phase_default() -> VictronClusterConfig {
+    VictronClusterConfig { enabled: false }  // Advanced, disabled by default
+}
+
+fn victron_cluster_env_default() -> VictronClusterConfig {
+    VictronClusterConfig { enabled: false }  // Optional, disabled by default
+}
+
+fn victron_cluster_diag_default() -> VictronClusterConfig {
+    VictronClusterConfig { enabled: false }  // Optional, disabled by default
+}
+
+fn victron_clusters_default() -> VictronClustersConfig {
+    VictronClustersConfig {
+        grid_metering: victron_cluster_grid_default(),
+        battery: victron_battery_cluster_default(),
+        solar: victron_cluster_solar_default(),
+        inverter_flow: victron_cluster_inverter_default(),
+        system_overview: victron_cluster_system_default(),
+        phase_details: victron_cluster_phase_default(),
+        environment: victron_cluster_env_default(),
+        diagnostics: victron_cluster_diag_default(),
+    }
+}
+
 #[derive(Deserialize, Serialize, Clone, ToSchema)]
 pub struct VictronConfig {
     pub name: String,
     #[serde(default="mqtt_client_name_default")]
     pub client_name: String,
     pub broker_host: String,
+    #[serde(default = "victron_broker_port_default")]
     pub broker_port: u16,
+    #[serde(default = "victron_update_interval_default")]
     pub update_interval: u64,
+    #[serde(default = "victron_enabled_default")]
     pub enabled: bool,
+    /// Export clusters - control which data is exported to Home Assistant
+    #[serde(default = "victron_clusters_default")]
+    pub clusters: VictronClustersConfig,
 }
+
+fn victron_broker_port_default() -> u16 { 1883 }
+fn victron_update_interval_default() -> u64 { 10 }
+fn victron_enabled_default() -> bool { true }
 
 #[derive(Deserialize, Serialize, Clone, ToSchema, PartialEq, Debug)]
 pub enum KnxDatapointType {
@@ -334,6 +462,8 @@ pub struct Config {
     pub mqtt: MqttConfig,
     #[serde(default="db_default")]
     pub db: DatabaseConfig,
+    #[serde(default="storage_default")]
+    pub storage: StorageConfig,
     #[serde(default="modbus_default")]
     pub modbus: ModbusConfig,
     #[serde(default="tibber_default")]
@@ -378,23 +508,14 @@ pub enum ConfigStatus {
 impl ConfigHolder {
     /// Try to load config, returning status and optional holder
     pub fn try_load() -> (ConfigStatus, Option<Self>) {
-        let mut bpath = "config/".to_string();
+        let bpath = "config/".to_string();
 
-        // Check for the two paths of the config file
-        let file_result = File::open("config/e2m.yaml");
-        let file = match file_result {
+        // Load config from config/e2m.yaml only
+        let file = match File::open("config/e2m.yaml") {
             Ok(f) => f,
             Err(_) => {
-                match File::open("e2m.yaml") {
-                    Ok(f) => {
-                        bpath = "".to_string();
-                        f
-                    },
-                    Err(_) => {
-                        info!("No config file found at config/e2m.yaml or e2m.yaml");
-                        return (ConfigStatus::Missing, None);
-                    }
-                }
+                info!("No config file found at config/e2m.yaml");
+                return (ConfigStatus::Missing, None);
             }
         };
 
@@ -441,6 +562,7 @@ impl ConfigHolder {
                         discovery_version: MQTT_DISCOVERY_VERSION_CURRENT,
                     },
                     db: db_default(),
+                    storage: storage_default(),
                     modbus: modbus_default(),
                     tibber: tibber_default(),
                     oms: oms_default(),
@@ -472,11 +594,13 @@ impl ConfigHolder {
     }
 
     /// Create initial config file with MQTT settings
+    /// Note: base_path should always be "config/" - config files are always stored in config/
     pub fn create_initial_config(mqtt_config: MqttConfig, base_path: &str) -> Result<(), String> {
         let config = Config {
             httpd: httpd_default(),
             mqtt: mqtt_config,
             db: db_default(),
+            storage: storage_default(),
             modbus: modbus_default(),
             tibber: tibber_default(),
             oms: oms_default(),
@@ -488,16 +612,12 @@ impl ConfigHolder {
         let yaml = serde_yml::to_string(&config)
             .map_err(|e| format!("Failed to serialize config: {}", e))?;
 
-        // Ensure directory exists
-        let dir_path = if base_path.is_empty() { "." } else { base_path.trim_end_matches('/') };
+        // Ensure config directory exists
+        let dir_path = base_path.trim_end_matches('/');
         fs::create_dir_all(dir_path)
             .map_err(|e| format!("Failed to create config directory: {}", e))?;
 
-        let config_path = if base_path.is_empty() {
-            "e2m.yaml".to_string()
-        } else {
-            format!("{}/e2m.yaml", dir_path)
-        };
+        let config_path = format!("{}/e2m.yaml", dir_path);
 
         fs::write(&config_path, yaml.as_bytes())
             .map_err(|e| format!("Failed to write config file: {}", e))?;

@@ -166,9 +166,11 @@ impl HaSensor {
 
     /// Get legacy combined discovery topic (for backwards compatibility)
     pub fn get_disc_topic(&self) -> String {
-        let proto = self.proto.replace("/", "_");
+        /*let proto = self.proto.replace("/", "_");
         let device = self.device.clone();
         format!("homeassistant/device/e2m_{proto}_{device}/config")
+        */
+        self.state_topic.clone()
     }
 
     /// Generate individual discovery messages for each entity

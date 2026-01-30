@@ -460,6 +460,25 @@ a {
     margin-top: var(--spacing-sm);
 }
 
+.stat-row {
+    display: flex;
+    justify-content: space-around;
+    gap: var(--spacing-lg);
+}
+
+.stat-item {
+    text-align: center;
+    flex: 1;
+}
+
+.stat-item .stat-value {
+    font-size: 36px;
+}
+
+.stat-item .stat-label {
+    font-size: 12px;
+}
+
 /* ==========================================================================
    Adapter Cards
    ========================================================================== */
@@ -1817,4 +1836,46 @@ input[readonly] {
     .progress-line {
         margin-bottom: 0;
     }
+}
+
+/* ==========================================================================
+   Victron Cluster Grid
+   ========================================================================== */
+
+.cluster-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: var(--spacing-md);
+    margin-top: var(--spacing-sm);
+}
+
+.cluster-item {
+    background: var(--primary-background-color);
+    border-radius: var(--border-radius-md);
+    padding: var(--spacing-md);
+    border: 1px solid var(--divider-color);
+}
+
+.cluster-item .switch-label {
+    margin-bottom: var(--spacing-xs);
+}
+
+.cluster-item .form-hint {
+    display: block;
+    margin-top: var(--spacing-xs);
+    margin-bottom: 0;
+}
+
+.cluster-suboption {
+    margin-top: var(--spacing-md);
+    padding-top: var(--spacing-md);
+    border-top: 1px solid var(--divider-color);
+}
+
+.cluster-suboption .switch-label {
+    font-size: 13px;
+}
+
+.cluster-suboption .form-hint {
+    font-size: 11px;
 }
