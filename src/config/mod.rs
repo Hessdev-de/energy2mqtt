@@ -45,7 +45,7 @@ pub struct MqttConfig {
 }
 
 fn db_dbtype_default() -> String {return "sqlite".to_string() }
-fn db_uri_default() -> String { return "devices.db".to_string() }
+fn db_uri_default() -> String { return "config/devices.db".to_string() }
 
 #[derive(Deserialize, Serialize, Clone)]
 pub struct DatabaseConfig {
@@ -402,23 +402,14 @@ pub enum ConfigStatus {
 impl ConfigHolder {
     /// Try to load config, returning status and optional holder
     pub fn try_load() -> (ConfigStatus, Option<Self>) {
-        let mut bpath = "config/".to_string();
+        let bpath = "config/".to_string();
 
-        // Check for the two paths of the config file
-        let file_result = File::open("config/e2m.yaml");
-        let file = match file_result {
+        // Load config from config/e2m.yaml only
+        let file = match File::open("config/e2m.yaml") {
             Ok(f) => f,
             Err(_) => {
-                match File::open("e2m.yaml") {
-                    Ok(f) => {
-                        bpath = "".to_string();
-                        f
-                    },
-                    Err(_) => {
-                        info!("No config file found at config/e2m.yaml or e2m.yaml");
-                        return (ConfigStatus::Missing, None);
-                    }
-                }
+                info!("No config file found at config/e2m.yaml");
+                return (ConfigStatus::Missing, None);
             }
         };
 
@@ -497,6 +488,7 @@ impl ConfigHolder {
     }
 
     /// Create initial config file with MQTT settings
+    /// Note: base_path should always be "config/" - config files are always stored in config/
     pub fn create_initial_config(mqtt_config: MqttConfig, base_path: &str) -> Result<(), String> {
         let config = Config {
             httpd: httpd_default(),
@@ -514,16 +506,12 @@ impl ConfigHolder {
         let yaml = serde_yml::to_string(&config)
             .map_err(|e| format!("Failed to serialize config: {}", e))?;
 
-        // Ensure directory exists
-        let dir_path = if base_path.is_empty() { "." } else { base_path.trim_end_matches('/') };
+        // Ensure config directory exists
+        let dir_path = base_path.trim_end_matches('/');
         fs::create_dir_all(dir_path)
             .map_err(|e| format!("Failed to create config directory: {}", e))?;
 
-        let config_path = if base_path.is_empty() {
-            "e2m.yaml".to_string()
-        } else {
-            format!("{}/e2m.yaml", dir_path)
-        };
+        let config_path = format!("{}/e2m.yaml", dir_path);
 
         fs::write(&config_path, yaml.as_bytes())
             .map_err(|e| format!("Failed to write config file: {}", e))?;
