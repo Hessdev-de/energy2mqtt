@@ -103,6 +103,7 @@ class Energy2MqttApp {
             'modbus': 'Modbus',
             'knx': 'KNX',
             'zenner': 'Zenner Datahub',
+            'victron': 'Victron',
             'oms': 'OMS Meters',
             'live': 'Live View',
             'settings': 'Settings'
@@ -133,6 +134,9 @@ class Energy2MqttApp {
                 break;
             case 'zenner':
                 await this.loadZennerData();
+                break;
+            case 'victron':
+                await this.loadVictronData();
                 break;
             case 'oms':
                 await this.loadOmsData();
@@ -228,6 +232,8 @@ class Energy2MqttApp {
         try {
             const zennerInstances = await window.api.getZennerConfig();
             ZennerComponents.renderInstancesList(zennerInstances || [], container);
+            // Also load discovered devices
+            await this.loadZennerDiscoveredDevices();
         } catch (error) {
             console.error('Failed to load Zenner data:', error);
             container.innerHTML = `
@@ -237,6 +243,40 @@ class Energy2MqttApp {
                     <p>${error.message}</p>
                 </div>
             `;
+        }
+    }
+
+    async loadZennerDiscoveredDevices() {
+        const container = document.getElementById('zennerDiscoveredDevicesList');
+        if (!container) return;
+
+        container.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+
+        try {
+            const data = await window.api.getDiscoveredProtocol('zenner_datahub');
+            ZennerComponents.renderDiscoveredDevicesList(data.instances || {}, container);
+        } catch (error) {
+            console.error('Failed to load discovered devices:', error);
+            container.innerHTML = `
+                <div class="empty-state">
+                    <span class="material-icons">devices</span>
+                    <h3>No Discovered Devices</h3>
+                    <p>Devices will appear here when they send data through Zenner Datahub.</p>
+                </div>
+            `;
+        }
+    }
+
+    async loadDiscoveredDeviceCount() {
+        try {
+            const summary = await window.api.getDiscoveredSummary();
+            const zennerCount = summary.protocols?.zenner_datahub || 0;
+            const el = document.getElementById('zennerDiscoveredCount');
+            if (el) {
+                el.textContent = zennerCount;
+            }
+        } catch (error) {
+            console.error('Failed to load discovered device count:', error);
         }
     }
 
@@ -259,6 +299,25 @@ class Energy2MqttApp {
         }
     }
 
+    async loadVictronData() {
+        const container = document.getElementById('victronInstancesList');
+        container.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+
+        try {
+            const victronInstances = await window.api.getVictronConfig();
+            VictronComponents.renderInstancesList(victronInstances || [], container);
+        } catch (error) {
+            console.error('Failed to load Victron data:', error);
+            container.innerHTML = `
+                <div class="empty-state">
+                    <span class="material-icons">error</span>
+                    <h3>Failed to Load</h3>
+                    <p>${error.message}</p>
+                </div>
+            `;
+        }
+    }
+
     // =========================================================================
     // UI Updates
     // =========================================================================
@@ -266,15 +325,32 @@ class Energy2MqttApp {
     updateOverviewStats() {
         if (!this.config) return;
 
-        // Update hub/adapter counts
-        document.getElementById('modbusHubCount').textContent =
-            this.config.modbus?.hubs?.length || 0;
-        document.getElementById('knxAdapterCount').textContent =
-            this.config.knx?.length || 0;
+        // Modbus: count hubs and total devices
+        const modbusHubs = this.config.modbus?.hubs || [];
+        const modbusDeviceCount = modbusHubs.reduce((sum, hub) => sum + (hub.devices?.length || 0), 0);
+        document.getElementById('modbusHubCount').textContent = modbusHubs.length;
+        document.getElementById('modbusDeviceCount').textContent = modbusDeviceCount;
+
+        // KNX: count adapters and total meters
+        const knxAdapters = this.config.knx || [];
+        const knxMeterCount = knxAdapters.reduce((sum, adapter) => sum + (adapter.meters?.length || 0), 0);
+        document.getElementById('knxAdapterCount').textContent = knxAdapters.length;
+        document.getElementById('knxMeterCount').textContent = knxMeterCount;
+
+        // Zenner Datahub: count instances
         document.getElementById('zennerInstanceCount').textContent =
             this.config.zenner_datahub?.length || 0;
+
+        // Load discovered device count asynchronously
+        this.loadDiscoveredDeviceCount();
+
+        // OMS: just meters count
         document.getElementById('omsMeterCount').textContent =
             this.config.oms?.length || 0;
+
+        // Victron: count GX device instances
+        document.getElementById('victronInstanceCount').textContent =
+            this.config.victron?.length || 0;
     }
 
     updateHealthDisplay() {
@@ -760,6 +836,119 @@ class Energy2MqttApp {
                 Toast.error(`${error.message}`);
             }
         });
+
+        // Victron Instance Form
+        document.getElementById('victronInstanceSubmit')?.addEventListener('click', async () => {
+            const form = document.getElementById('victronInstanceForm');
+            if (!form.checkValidity()) {
+                form.reportValidity();
+                return;
+            }
+
+            const instance = {
+                name: document.getElementById('victronInstanceName').value,
+                broker_host: document.getElementById('victronBrokerHost').value,
+                broker_port: parseInt(document.getElementById('victronBrokerPort').value) || 1883,
+                client_name: document.getElementById('victronClientName').value || '',
+                update_interval: parseInt(document.getElementById('victronUpdateInterval').value) || 10,
+                enabled: document.getElementById('victronEnabled').checked,
+                clusters: {
+                    grid_metering: {
+                        enabled: document.getElementById('victronClusterGrid').checked
+                    },
+                    battery: {
+                        enabled: document.getElementById('victronClusterBattery').checked,
+                        include_cell_data: document.getElementById('victronClusterBatteryCellData').checked
+                    },
+                    solar: {
+                        enabled: document.getElementById('victronClusterSolar').checked
+                    },
+                    inverter_flow: {
+                        enabled: document.getElementById('victronClusterInverter').checked
+                    },
+                    system_overview: {
+                        enabled: document.getElementById('victronClusterSystem').checked
+                    },
+                    phase_details: {
+                        enabled: document.getElementById('victronClusterPhase').checked
+                    },
+                    environment: {
+                        enabled: document.getElementById('victronClusterEnvironment').checked
+                    }
+                }
+            };
+
+            const editingName = document.getElementById('victronInstanceEditName').value;
+
+            try {
+                if (editingName) {
+                    await window.api.updateVictronInstance(editingName, instance);
+                    Toast.success(`GX Device "${instance.name}" updated`);
+                } else {
+                    await window.api.addVictronInstance(instance);
+                    Toast.success(`GX Device "${instance.name}" created`);
+                }
+                DialogManager.hide();
+                await this.loadVictronData();
+                this.config = await window.api.getConfig();
+                this.updateOverviewStats();
+            } catch (error) {
+                Toast.error(`${error.message}`);
+            }
+        });
+
+        // Battery cluster toggle - show/hide cell data option
+        document.getElementById('victronClusterBattery')?.addEventListener('change', (e) => {
+            const cellDataOption = document.getElementById('victronBatteryCellDataOption');
+            if (cellDataOption) {
+                cellDataOption.style.display = e.target.checked ? 'block' : 'none';
+            }
+        });
+
+        // Discovered Device Form
+        document.getElementById('discoveredDeviceSubmit')?.addEventListener('click', async () => {
+            const protocol = document.getElementById('discoveredDeviceProtocol').value;
+            const instance = document.getElementById('discoveredDeviceInstance').value;
+            const deviceId = document.getElementById('discoveredDeviceId').value;
+
+            const update = {
+                name: document.getElementById('discoveredDeviceName').value || undefined,
+                export_to_ha: document.getElementById('discoveredDeviceExport').checked,
+                ha_area: document.getElementById('discoveredDeviceArea').value || null,
+                notes: document.getElementById('discoveredDeviceNotes').value || null,
+            };
+
+            try {
+                await window.api.updateDiscoveredDevice(protocol, instance, deviceId, update);
+                Toast.success('Device settings saved');
+                DialogManager.hide();
+                await this.loadZennerDiscoveredDevices();
+                await this.loadDiscoveredDeviceCount();
+            } catch (error) {
+                Toast.error(`Failed to save: ${error.message}`);
+            }
+        });
+
+        // Discovered Device Forget
+        document.getElementById('discoveredDeviceForget')?.addEventListener('click', async () => {
+            const protocol = document.getElementById('discoveredDeviceProtocol').value;
+            const instance = document.getElementById('discoveredDeviceInstance').value;
+            const deviceId = document.getElementById('discoveredDeviceId').value;
+
+            if (!confirm(`Are you sure you want to forget device ${deviceId}? It will be re-discovered when it sends data again.`)) {
+                return;
+            }
+
+            try {
+                await window.api.deleteDiscoveredDevice(protocol, instance, deviceId);
+                Toast.success('Device forgotten');
+                DialogManager.hide();
+                await this.loadZennerDiscoveredDevices();
+                await this.loadDiscoveredDeviceCount();
+            } catch (error) {
+                Toast.error(`Failed to delete: ${error.message}`);
+            }
+        });
     }
 
     // =========================================================================
@@ -812,6 +1001,29 @@ class Energy2MqttApp {
             document.getElementById('omsMeterEditName').value = '';
             document.getElementById('omsMeterSubmit').textContent = 'Add Meter';
             DialogManager.show('omsMeterDialog');
+        });
+
+        // Add Victron Instance
+        document.getElementById('addVictronInstance')?.addEventListener('click', () => {
+            document.getElementById('victronInstanceForm').reset();
+            document.getElementById('victronInstanceDialogTitle').textContent = 'Add Victron GX Device';
+            document.getElementById('victronInstanceEditName').value = '';
+            document.getElementById('victronBrokerPort').value = 1883;
+            document.getElementById('victronUpdateInterval').value = 10;
+            document.getElementById('victronEnabled').checked = true;
+            // Set default cluster states
+            document.getElementById('victronClusterGrid').checked = true;
+            document.getElementById('victronClusterBattery').checked = true;
+            document.getElementById('victronClusterBatteryCellData').checked = true;
+            document.getElementById('victronClusterSolar').checked = true;
+            document.getElementById('victronClusterSystem').checked = true;
+            document.getElementById('victronClusterInverter').checked = false;
+            document.getElementById('victronClusterPhase').checked = false;
+            document.getElementById('victronClusterEnvironment').checked = false;
+            // Show cell data option since battery is enabled
+            document.getElementById('victronBatteryCellDataOption').style.display = 'block';
+            document.getElementById('victronInstanceSubmit').textContent = 'Add Device';
+            DialogManager.show('victronInstanceDialog');
         });
 
         // Refresh button
@@ -874,6 +1086,8 @@ class Energy2MqttApp {
                 this.loadKnxData();
             } else if (change.base === 'zenner' && this.currentPage === 'zenner') {
                 this.loadZennerData();
+            } else if (change.base === 'victron' && this.currentPage === 'victron') {
+                this.loadVictronData();
             }
 
             // Update overview stats
@@ -903,6 +1117,11 @@ class Energy2MqttApp {
 
         window.addEventListener('oms:refresh', () => {
             this.loadOmsData();
+            this.loadInitialData();
+        });
+
+        window.addEventListener('victron:refresh', () => {
+            this.loadVictronData();
             this.loadInitialData();
         });
     }

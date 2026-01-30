@@ -55,6 +55,21 @@ pub struct DatabaseConfig {
     pub uri: String,
 }
 
+fn discovered_devices_path_default() -> String { "discovered_devices.yaml".to_string() }
+
+#[derive(Deserialize, Serialize, Clone)]
+pub struct StorageConfig {
+    /// Path to the discovered devices file
+    #[serde(default="discovered_devices_path_default")]
+    pub discovered_devices_path: String,
+}
+
+fn storage_default() -> StorageConfig {
+    StorageConfig {
+        discovered_devices_path: discovered_devices_path_default(),
+    }
+}
+
 #[derive(Deserialize, Serialize, Clone, ToSchema)]
 pub struct ModbusDeviceConfig {
     pub name: String,
@@ -133,10 +148,17 @@ pub struct VictronConfig {
     #[serde(default="mqtt_client_name_default")]
     pub client_name: String,
     pub broker_host: String,
+    #[serde(default = "victron_broker_port_default")]
     pub broker_port: u16,
+    #[serde(default = "victron_update_interval_default")]
     pub update_interval: u64,
+    #[serde(default = "victron_enabled_default")]
     pub enabled: bool,
 }
+
+fn victron_broker_port_default() -> u16 { 1883 }
+fn victron_update_interval_default() -> u64 { 10 }
+fn victron_enabled_default() -> bool { true }
 
 #[derive(Deserialize, Serialize, Clone, ToSchema, PartialEq, Debug)]
 pub enum KnxDatapointType {
@@ -334,6 +356,8 @@ pub struct Config {
     pub mqtt: MqttConfig,
     #[serde(default="db_default")]
     pub db: DatabaseConfig,
+    #[serde(default="storage_default")]
+    pub storage: StorageConfig,
     #[serde(default="modbus_default")]
     pub modbus: ModbusConfig,
     #[serde(default="tibber_default")]
@@ -441,6 +465,7 @@ impl ConfigHolder {
                         discovery_version: MQTT_DISCOVERY_VERSION_CURRENT,
                     },
                     db: db_default(),
+                    storage: storage_default(),
                     modbus: modbus_default(),
                     tibber: tibber_default(),
                     oms: oms_default(),
@@ -477,6 +502,7 @@ impl ConfigHolder {
             httpd: httpd_default(),
             mqtt: mqtt_config,
             db: db_default(),
+            storage: storage_default(),
             modbus: modbus_default(),
             tibber: tibber_default(),
             oms: oms_default(),

@@ -74,6 +74,10 @@ class Energy2MqttApi {
         return this.request('DELETE', endpoint);
     }
 
+    async patch(endpoint, data) {
+        return this.request('PATCH', endpoint, data);
+    }
+
     // =========================================================================
     // Health & System
     // =========================================================================
@@ -218,6 +222,54 @@ class Energy2MqttApi {
 
     async deleteOmsMeter(name) {
         return this.delete(`/api/v1/oms/${encodeURIComponent(name)}`);
+    }
+
+    // =========================================================================
+    // Victron API
+    // =========================================================================
+
+    async getVictronConfig() {
+        return this.get('/api/v1/victron');
+    }
+
+    async addVictronInstance(instance) {
+        return this.post('/api/v1/victron', instance);
+    }
+
+    async updateVictronInstance(name, instance) {
+        return this.put(`/api/v1/victron/${encodeURIComponent(name)}`, instance);
+    }
+
+    async deleteVictronInstance(name) {
+        return this.delete(`/api/v1/victron/${encodeURIComponent(name)}`);
+    }
+
+    // =========================================================================
+    // Discovered Devices API
+    // =========================================================================
+
+    async getDiscoveredSummary() {
+        return this.get('/api/v1/discovered');
+    }
+
+    async getDiscoveredProtocol(protocol) {
+        return this.get(`/api/v1/discovered/${encodeURIComponent(protocol)}`);
+    }
+
+    async getDiscoveredInstance(protocol, instance) {
+        return this.get(`/api/v1/discovered/${encodeURIComponent(protocol)}/${encodeURIComponent(instance)}`);
+    }
+
+    async getDiscoveredDevice(protocol, instance, deviceId) {
+        return this.get(`/api/v1/discovered/${encodeURIComponent(protocol)}/${encodeURIComponent(instance)}/${encodeURIComponent(deviceId)}`);
+    }
+
+    async updateDiscoveredDevice(protocol, instance, deviceId, update) {
+        return this.patch(`/api/v1/discovered/${encodeURIComponent(protocol)}/${encodeURIComponent(instance)}/${encodeURIComponent(deviceId)}`, update);
+    }
+
+    async deleteDiscoveredDevice(protocol, instance, deviceId) {
+        return this.delete(`/api/v1/discovered/${encodeURIComponent(protocol)}/${encodeURIComponent(instance)}/${encodeURIComponent(deviceId)}`);
     }
 
     // =========================================================================

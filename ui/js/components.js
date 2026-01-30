@@ -916,6 +916,128 @@ class ZennerComponents {
             }
         }
     }
+
+    // -------------------------------------------------------------------------
+    // Discovered Devices
+    // -------------------------------------------------------------------------
+
+    static renderDiscoveredDevicesList(instances, container) {
+        // instances is: { "instance_name": { "device_id": device_data, ... }, ... }
+        const allDevices = [];
+
+        // Flatten into a list with instance info
+        for (const [instanceName, devices] of Object.entries(instances)) {
+            for (const [deviceId, device] of Object.entries(devices)) {
+                allDevices.push({
+                    instanceName,
+                    deviceId,
+                    ...device
+                });
+            }
+        }
+
+        if (allDevices.length === 0) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <span class="material-icons">devices</span>
+                    <h3>No Discovered Devices</h3>
+                    <p>Devices will appear here when they send data through Zenner Datahub.</p>
+                </div>
+            `;
+            return;
+        }
+
+        // Sort by last_seen descending (most recent first)
+        allDevices.sort((a, b) => (b.last_seen || 0) - (a.last_seen || 0));
+
+        container.innerHTML = allDevices.map(device => this.renderDiscoveredDevice(device)).join('');
+
+        // Attach event listeners
+        container.querySelectorAll('[data-action="edit-discovered-device"]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const instanceName = btn.dataset.instance;
+                const deviceId = btn.dataset.device;
+                const device = allDevices.find(d => d.instanceName === instanceName && d.deviceId === deviceId);
+                if (device) {
+                    this.handleEditDiscoveredDevice('zenner_datahub', instanceName, deviceId, device);
+                }
+            });
+        });
+    }
+
+    static renderDiscoveredDevice(device) {
+        const exportBadge = device.export_to_ha !== false
+            ? '<span class="badge success">HA Export</span>'
+            : '<span class="badge warning">Hidden</span>';
+
+        const lastSeenStr = device.last_seen
+            ? new Date(device.last_seen * 1000).toLocaleString()
+            : 'Unknown';
+
+        const displayName = device.name !== device.deviceId ? device.name : device.deviceId;
+
+        return `
+            <div class="card adapter-card ${device.export_to_ha === false ? 'disabled' : ''}">
+                <div class="adapter-header">
+                    <span class="material-icons" style="font-size: 32px; color: var(--primary-color);">memory</span>
+                    <div class="adapter-info">
+                        <div class="adapter-name">${escapeHtml(displayName)}</div>
+                        <div class="adapter-details">
+                            <code>${escapeHtml(device.deviceId)}</code> &bull;
+                            ${escapeHtml(device.manufacturer || 'Unknown')} ${escapeHtml(device.model || '')} &bull;
+                            Instance: ${escapeHtml(device.instanceName)}
+                        </div>
+                    </div>
+                    ${exportBadge}
+                    <div class="adapter-actions">
+                        <button class="icon-button small" title="Edit Device"
+                                data-action="edit-discovered-device"
+                                data-instance="${escapeHtml(device.instanceName)}"
+                                data-device="${escapeHtml(device.deviceId)}">
+                            <span class="material-icons">edit</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="adapter-content">
+                    <div class="instance-details">
+                        <div class="detail-row">
+                            <span class="detail-label">Last Seen</span>
+                            <span class="detail-value">${escapeHtml(lastSeenStr)}</span>
+                        </div>
+                        ${device.notes ? `
+                        <div class="detail-row">
+                            <span class="detail-label">Notes</span>
+                            <span class="detail-value">${escapeHtml(device.notes)}</span>
+                        </div>
+                        ` : ''}
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    static handleEditDiscoveredDevice(protocol, instanceName, deviceId, device) {
+        // Fill form with existing data
+        document.getElementById('discoveredDeviceProtocol').value = protocol;
+        document.getElementById('discoveredDeviceInstance').value = instanceName;
+        document.getElementById('discoveredDeviceId').value = deviceId;
+        document.getElementById('discoveredDeviceName').value = device.name || deviceId;
+        document.getElementById('discoveredDeviceExport').checked = device.export_to_ha !== false;
+        document.getElementById('discoveredDeviceArea').value = device.ha_area || '';
+        document.getElementById('discoveredDeviceNotes').value = device.notes || '';
+
+        // Info display
+        document.getElementById('discoveredDeviceIdDisplay').textContent = deviceId;
+        document.getElementById('discoveredDeviceModel').textContent =
+            `${device.manufacturer || 'Unknown'} ${device.model || ''}`.trim();
+        document.getElementById('discoveredDeviceFirstSeen').textContent =
+            device.first_seen ? new Date(device.first_seen * 1000).toLocaleString() : 'Unknown';
+        document.getElementById('discoveredDeviceLastSeen').textContent =
+            device.last_seen ? new Date(device.last_seen * 1000).toLocaleString() : 'Unknown';
+
+        document.getElementById('discoveredDeviceDialogTitle').textContent = 'Edit Device Settings';
+        DialogManager.show('discoveredDeviceDialog');
+    }
 }
 
 // =============================================================================
@@ -1056,6 +1178,160 @@ class OmsComponents {
     }
 }
 
+// =========================================================================
+// Victron Components
+// =========================================================================
+
+class VictronComponents {
+    static renderInstancesList(instances, container) {
+        if (!instances || instances.length === 0) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <span class="material-icons">solar_power</span>
+                    <h3>No Victron GX Devices</h3>
+                    <p>Add a Victron GX device (Cerbo GX, Venus GX, etc.) to monitor your solar system.</p>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = instances.map(instance => this.renderInstance(instance)).join('');
+
+        // Attach event listeners
+        container.querySelectorAll('[data-action]').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const action = btn.dataset.action;
+                const instanceName = btn.dataset.instance;
+
+                switch (action) {
+                    case 'edit-instance':
+                        this.handleEditInstance(instanceName, instances);
+                        break;
+                    case 'delete-instance':
+                        this.handleDeleteInstance(instanceName);
+                        break;
+                }
+            });
+        });
+    }
+
+    static renderInstance(instance) {
+        const enabledClusters = this.getEnabledClusters(instance.clusters);
+        const statusClass = instance.enabled ? 'success' : '';
+        const statusText = instance.enabled ? 'Enabled' : 'Disabled';
+
+        return `
+            <div class="card adapter-card">
+                <div class="adapter-header">
+                    <span class="material-icons" style="font-size: 32px; color: var(--primary-color);">solar_power</span>
+                    <div class="adapter-info">
+                        <div class="adapter-name">${escapeHtml(instance.name)}</div>
+                        <div class="adapter-details">
+                            ${escapeHtml(instance.broker_host)}:${instance.broker_port || 1883}
+                            <span class="badge small ${statusClass}">${statusText}</span>
+                        </div>
+                    </div>
+                    <div class="adapter-actions">
+                        <button class="icon-button small" title="Edit Device"
+                                data-action="edit-instance"
+                                data-instance="${escapeHtml(instance.name)}">
+                            <span class="material-icons">edit</span>
+                        </button>
+                        <button class="icon-button small" title="Delete Device"
+                                data-action="delete-instance"
+                                data-instance="${escapeHtml(instance.name)}">
+                            <span class="material-icons">delete</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="adapter-content">
+                    <div class="instance-details">
+                        <div class="detail-row">
+                            <span class="detail-label">Enabled Clusters</span>
+                            <span class="detail-value">${enabledClusters.length > 0 ? enabledClusters.join(', ') : 'None'}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    static getEnabledClusters(clusters) {
+        if (!clusters) return ['Grid', 'Battery', 'Solar', 'System'];
+
+        const clusterNames = {
+            grid_metering: 'Grid',
+            battery: 'Battery',
+            solar: 'Solar',
+            inverter_flow: 'Inverter',
+            system_overview: 'System',
+            phase_details: 'Phases',
+            environment: 'Environment'
+        };
+
+        const enabled = [];
+        for (const [key, name] of Object.entries(clusterNames)) {
+            const cluster = clusters[key];
+            if (cluster && cluster.enabled !== false) {
+                enabled.push(name);
+            }
+        }
+        return enabled;
+    }
+
+    static handleEditInstance(instanceName, instances) {
+        const instance = instances.find(i => i.name === instanceName);
+        if (!instance) return;
+
+        // Fill form with existing data
+        document.getElementById('victronInstanceEditName').value = instance.name;
+        document.getElementById('victronInstanceName').value = instance.name;
+        document.getElementById('victronBrokerHost').value = instance.broker_host || '';
+        document.getElementById('victronBrokerPort').value = instance.broker_port || 1883;
+        document.getElementById('victronClientName').value = instance.client_name || '';
+        document.getElementById('victronUpdateInterval').value = instance.update_interval || 10;
+        document.getElementById('victronEnabled').checked = instance.enabled !== false;
+
+        // Set cluster states
+        const clusters = instance.clusters || {};
+        document.getElementById('victronClusterGrid').checked = clusters.grid_metering?.enabled !== false;
+        document.getElementById('victronClusterBattery').checked = clusters.battery?.enabled !== false;
+        document.getElementById('victronClusterBatteryCellData').checked = clusters.battery?.include_cell_data !== false;
+        document.getElementById('victronClusterSolar').checked = clusters.solar?.enabled !== false;
+        document.getElementById('victronClusterSystem').checked = clusters.system_overview?.enabled !== false;
+        document.getElementById('victronClusterInverter').checked = clusters.inverter_flow?.enabled === true;
+        document.getElementById('victronClusterPhase').checked = clusters.phase_details?.enabled === true;
+        document.getElementById('victronClusterEnvironment').checked = clusters.environment?.enabled === true;
+
+        // Show/hide cell data option based on battery cluster state
+        const cellDataOption = document.getElementById('victronBatteryCellDataOption');
+        if (cellDataOption) {
+            cellDataOption.style.display = clusters.battery?.enabled !== false ? 'block' : 'none';
+        }
+
+        document.getElementById('victronInstanceDialogTitle').textContent = 'Edit Victron GX Device';
+        document.getElementById('victronInstanceSubmit').textContent = 'Save Changes';
+        DialogManager.show('victronInstanceDialog');
+    }
+
+    static async handleDeleteInstance(instanceName) {
+        const confirmed = await DialogManager.confirm(
+            'Delete Victron GX Device',
+            `Are you sure you want to delete "${instanceName}"?`
+        );
+
+        if (confirmed) {
+            try {
+                await window.api.deleteVictronInstance(instanceName);
+                Toast.success(`Device "${instanceName}" deleted`);
+                window.dispatchEvent(new CustomEvent('victron:refresh'));
+            } catch (error) {
+                Toast.error(`Failed to delete device: ${error.message}`);
+            }
+        }
+    }
+}
+
 // Export for global use
 window.Toast = Toast;
 window.DialogManager = DialogManager;
@@ -1063,4 +1339,5 @@ window.ModbusComponents = ModbusComponents;
 window.KnxComponents = KnxComponents;
 window.ZennerComponents = ZennerComponents;
 window.OmsComponents = OmsComponents;
+window.VictronComponents = VictronComponents;
 window.formatUptime = formatUptime;

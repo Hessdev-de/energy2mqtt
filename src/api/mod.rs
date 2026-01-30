@@ -8,9 +8,10 @@ use serde::{Serialize, Deserialize};
 use std::time::{SystemTime, UNIX_EPOCH, Duration};
 use utoipa::ToSchema;
 
-use crate::{config::{ConfigBases, ModbusHubConfig, KnxAdapterConfig, KnxMeterConfig, KnxSwitchConfig, MqttConfig, ConfigHolder, ConfigStatus, ZennerDatahubConfig, OmsConfig}, get_config_or_panic, CONFIG};
+use crate::{config::{ConfigBases, ModbusHubConfig, KnxAdapterConfig, KnxMeterConfig, KnxSwitchConfig, MqttConfig, ConfigHolder, ConfigStatus, ZennerDatahubConfig, OmsConfig, VictronConfig}, get_config_or_panic, CONFIG};
 use crate::mqtt::{get_app_status, MqttConnectionStatus, LIVE_EVENTS};
 use crate::mqtt::migration::force_cleanup;
+use crate::discovered_devices::{DiscoveredDevice, DiscoveredDeviceUpdate, get_discovered_devices};
 use rumqttc::{MqttOptions, Client};
 
 
@@ -926,6 +927,106 @@ pub async fn delete_oms_meter(
     }
 }
 
+//////////////////// VICTRON ////////////////////////////////////////////////////////////////////////////////////////
+
+#[utoipa::path(get,
+    path = "/api/v1/victron",
+    summary = "Get all Victron GX device configuration",
+    responses(
+        (status = 200, description = "Get current Victron config")
+    ),
+)]
+pub async fn get_victron_config() -> impl Responder {
+    let config = get_config_or_panic!("victron", ConfigBases::Victron);
+    HttpResponse::Ok().content_type("application/json").json(config)
+}
+
+#[utoipa::path(post,
+    path = "/api/v1/victron",
+    summary = "Add a new Victron GX device",
+    request_body(content = VictronConfig, description = "Victron GX device definition", content_type = "application/json"),
+    responses(
+        (status = 201, description = "The device was added"),
+        (status = 400, description = "The name is already taken")
+    ),
+)]
+pub async fn add_victron_instance(
+    instance_req: web::Json<VictronConfig>,
+) -> impl Responder {
+    info!("Adding new Victron GX device {}", instance_req.name);
+
+    let mut config = get_config_or_panic!("victron", ConfigBases::Victron);
+
+    // Check if a device with this name already exists
+    if config.iter().any(|i| i.name == instance_req.name) {
+        return HttpResponse::BadRequest().body("Device with this name already exists");
+    }
+
+    config.push(instance_req.into_inner());
+
+    CONFIG.write().unwrap().update_config(crate::config::ConfigOperation::ADD, ConfigBases::Victron(config));
+
+    HttpResponse::Created().body("Created")
+}
+
+#[utoipa::path(put,
+    path = "/api/v1/victron/{name}",
+    summary = "Update a Victron GX device configuration",
+    params(
+        ("name", description = "Name of the device to update")
+    ),
+    request_body(content = VictronConfig, description = "Updated device configuration", content_type = "application/json"),
+    responses(
+        (status = 200, description = "The device was updated"),
+        (status = 404, description = "The device was not found")
+    ),
+)]
+pub async fn update_victron_instance(
+    path: web::Path<String>,
+    instance_req: web::Json<VictronConfig>,
+) -> impl Responder {
+    let instance_name = path.into_inner();
+    let mut config = get_config_or_panic!("victron", ConfigBases::Victron);
+    info!("Updating Victron GX device \"{}\"", instance_name);
+
+    if let Some(instance) = config.iter_mut().find(|i| i.name == instance_name) {
+        *instance = instance_req.into_inner();
+        CONFIG.write().unwrap().update_config(crate::config::ConfigOperation::CHANGE, ConfigBases::Victron(config));
+        HttpResponse::Ok().body(format!("Device '{}' updated", instance_name))
+    } else {
+        HttpResponse::NotFound().content_type("text/plain").body(format!("Device '{}' not found", instance_name))
+    }
+}
+
+#[utoipa::path(delete,
+    path = "/api/v1/victron/{name}",
+    summary = "Delete a Victron GX device",
+    params(
+        ("name", description = "Name of the device to delete")
+    ),
+    responses(
+        (status = 200, description = "The device was deleted"),
+        (status = 404, description = "The device was not found")
+    ),
+)]
+pub async fn delete_victron_instance(
+    path: web::Path<String>,
+) -> impl Responder {
+    let instance_name = path.into_inner();
+    let mut config = get_config_or_panic!("victron", ConfigBases::Victron);
+    info!("Called to delete Victron GX device \"{instance_name}\"");
+
+    let initial_len = config.len();
+    config.retain(|i| i.name != instance_name);
+
+    if config.len() < initial_len {
+        CONFIG.write().unwrap().update_config(crate::config::ConfigOperation::DELETE, ConfigBases::Victron(config));
+        HttpResponse::Ok().body(format!("Device '{}' deleted", instance_name))
+    } else {
+        HttpResponse::NotFound().content_type("text/plain").body(format!("Device '{}' not found", instance_name))
+    }
+}
+
 // Websocket to push config changes to the client log file
 #[utoipa::path(get,
     path = "/api/v1/ws/configChanges",
@@ -999,6 +1100,239 @@ pub async fn e2m_prometheus_metering() -> impl Responder {
     HttpResponse::Ok().content_type("text/plain").body("")
 }
 
+// ==================== DISCOVERED DEVICES ENDPOINTS ====================
+
+/// Response containing discovered devices summary
+#[derive(Serialize, ToSchema)]
+pub struct DiscoveredDevicesSummary {
+    pub total_devices: usize,
+    pub protocols: std::collections::HashMap<String, usize>,
+}
+
+/// Response containing devices for a specific protocol
+#[derive(Serialize, ToSchema)]
+pub struct ProtocolDevicesResponse {
+    pub protocol: String,
+    pub total_devices: usize,
+    pub instances: std::collections::HashMap<String, std::collections::HashMap<String, DiscoveredDevice>>,
+}
+
+/// Response containing devices for a specific instance
+#[derive(Serialize, ToSchema)]
+pub struct InstanceDevicesResponse {
+    pub protocol: String,
+    pub instance: String,
+    pub devices: std::collections::HashMap<String, DiscoveredDevice>,
+}
+
+#[utoipa::path(get,
+    path = "/api/v1/discovered",
+    summary = "Get summary of all discovered devices",
+    responses(
+        (status = 200, description = "Discovered devices summary", body = DiscoveredDevicesSummary),
+        (status = 500, description = "Store not initialized")
+    ),
+)]
+pub async fn get_discovered_summary() -> impl Responder {
+    let store = match get_discovered_devices() {
+        Some(s) => s,
+        None => return HttpResponse::InternalServerError().json(serde_json::json!({
+            "error": "Discovered devices store not initialized"
+        })),
+    };
+
+    let summary = store.get_summary();
+    let total: usize = summary.values().sum();
+
+    HttpResponse::Ok().json(DiscoveredDevicesSummary {
+        total_devices: total,
+        protocols: summary,
+    })
+}
+
+#[utoipa::path(get,
+    path = "/api/v1/discovered/{protocol}",
+    summary = "Get all discovered devices for a protocol",
+    params(
+        ("protocol" = String, Path, description = "Protocol name (e.g., zenner_datahub)")
+    ),
+    responses(
+        (status = 200, description = "Protocol devices", body = ProtocolDevicesResponse),
+        (status = 500, description = "Store not initialized")
+    ),
+)]
+pub async fn get_discovered_protocol(path: web::Path<String>) -> impl Responder {
+    let protocol = path.into_inner();
+
+    let store = match get_discovered_devices() {
+        Some(s) => s,
+        None => return HttpResponse::InternalServerError().json(serde_json::json!({
+            "error": "Discovered devices store not initialized"
+        })),
+    };
+
+    let instances = store.get_all_devices(&protocol);
+    let total: usize = instances.values().map(|d| d.len()).sum();
+
+    HttpResponse::Ok().json(ProtocolDevicesResponse {
+        protocol,
+        total_devices: total,
+        instances,
+    })
+}
+
+#[utoipa::path(get,
+    path = "/api/v1/discovered/{protocol}/{instance}",
+    summary = "Get discovered devices for a specific instance",
+    params(
+        ("protocol" = String, Path, description = "Protocol name"),
+        ("instance" = String, Path, description = "Instance name")
+    ),
+    responses(
+        (status = 200, description = "Instance devices", body = InstanceDevicesResponse),
+        (status = 500, description = "Store not initialized")
+    ),
+)]
+pub async fn get_discovered_instance(path: web::Path<(String, String)>) -> impl Responder {
+    let (protocol, instance) = path.into_inner();
+
+    let store = match get_discovered_devices() {
+        Some(s) => s,
+        None => return HttpResponse::InternalServerError().json(serde_json::json!({
+            "error": "Discovered devices store not initialized"
+        })),
+    };
+
+    let devices = store.get_instance_devices(&protocol, &instance);
+
+    HttpResponse::Ok().json(InstanceDevicesResponse {
+        protocol,
+        instance,
+        devices,
+    })
+}
+
+#[utoipa::path(get,
+    path = "/api/v1/discovered/{protocol}/{instance}/{device_id}",
+    summary = "Get a specific discovered device",
+    params(
+        ("protocol" = String, Path, description = "Protocol name"),
+        ("instance" = String, Path, description = "Instance name"),
+        ("device_id" = String, Path, description = "Device ID")
+    ),
+    responses(
+        (status = 200, description = "Device found", body = DiscoveredDevice),
+        (status = 404, description = "Device not found"),
+        (status = 500, description = "Store not initialized")
+    ),
+)]
+pub async fn get_discovered_device(path: web::Path<(String, String, String)>) -> impl Responder {
+    let (protocol, instance, device_id) = path.into_inner();
+
+    let store = match get_discovered_devices() {
+        Some(s) => s,
+        None => return HttpResponse::InternalServerError().json(serde_json::json!({
+            "error": "Discovered devices store not initialized"
+        })),
+    };
+
+    match store.get_device(&protocol, &instance, &device_id) {
+        Some(device) => HttpResponse::Ok().json(device),
+        None => HttpResponse::NotFound().json(serde_json::json!({
+            "error": "Device not found"
+        })),
+    }
+}
+
+#[utoipa::path(patch,
+    path = "/api/v1/discovered/{protocol}/{instance}/{device_id}",
+    summary = "Update a discovered device",
+    params(
+        ("protocol" = String, Path, description = "Protocol name"),
+        ("instance" = String, Path, description = "Instance name"),
+        ("device_id" = String, Path, description = "Device ID")
+    ),
+    request_body = DiscoveredDeviceUpdate,
+    responses(
+        (status = 200, description = "Device updated", body = DiscoveredDevice),
+        (status = 404, description = "Device not found"),
+        (status = 500, description = "Update failed")
+    ),
+)]
+pub async fn update_discovered_device(
+    path: web::Path<(String, String, String)>,
+    body: web::Json<DiscoveredDeviceUpdate>,
+) -> impl Responder {
+    let (protocol, instance, device_id) = path.into_inner();
+
+    let store = match get_discovered_devices() {
+        Some(s) => s,
+        None => return HttpResponse::InternalServerError().json(serde_json::json!({
+            "error": "Discovered devices store not initialized"
+        })),
+    };
+
+    match store.update_device(&protocol, &instance, &device_id, body.into_inner()) {
+        Ok(device) => {
+            // Save changes
+            if let Err(e) = store.save() {
+                log::error!("Failed to save discovered devices: {}", e);
+            }
+            HttpResponse::Ok().json(device)
+        }
+        Err(e) => {
+            if e.contains("not found") {
+                HttpResponse::NotFound().json(serde_json::json!({
+                    "error": e
+                }))
+            } else {
+                HttpResponse::InternalServerError().json(serde_json::json!({
+                    "error": e
+                }))
+            }
+        }
+    }
+}
+
+#[utoipa::path(delete,
+    path = "/api/v1/discovered/{protocol}/{instance}/{device_id}",
+    summary = "Delete/forget a discovered device",
+    params(
+        ("protocol" = String, Path, description = "Protocol name"),
+        ("instance" = String, Path, description = "Instance name"),
+        ("device_id" = String, Path, description = "Device ID")
+    ),
+    responses(
+        (status = 200, description = "Device deleted"),
+        (status = 500, description = "Delete failed")
+    ),
+)]
+pub async fn delete_discovered_device(path: web::Path<(String, String, String)>) -> impl Responder {
+    let (protocol, instance, device_id) = path.into_inner();
+
+    let store = match get_discovered_devices() {
+        Some(s) => s,
+        None => return HttpResponse::InternalServerError().json(serde_json::json!({
+            "error": "Discovered devices store not initialized"
+        })),
+    };
+
+    match store.delete_device(&protocol, &instance, &device_id) {
+        Ok(()) => {
+            // Save changes
+            if let Err(e) = store.save() {
+                log::error!("Failed to save discovered devices: {}", e);
+            }
+            HttpResponse::Ok().json(serde_json::json!({
+                "status": "deleted"
+            }))
+        }
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
+            "error": e
+        })),
+    }
+}
+
 impl ApiManager {
     pub fn new() -> Self {
         return ApiManager;
@@ -1047,6 +1381,12 @@ impl ApiManager {
                     ha_restart_service,
                     ha_save_config,
                     ha_reload_config,
+                    get_discovered_summary,
+                    get_discovered_protocol,
+                    get_discovered_instance,
+                    get_discovered_device,
+                    update_discovered_device,
+                    delete_discovered_device,
             )
         )]
         struct ApiDoc;
@@ -1085,6 +1425,11 @@ impl ApiManager {
                 .route("/api/v1/oms", web::post().to(add_oms_meter))
                 .route("/api/v1/oms/{name}", web::put().to(update_oms_meter))
                 .route("/api/v1/oms/{name}", web::delete().to(delete_oms_meter))
+                // Victron routes
+                .route("/api/v1/victron", web::get().to(get_victron_config))
+                .route("/api/v1/victron", web::post().to(add_victron_instance))
+                .route("/api/v1/victron/{name}", web::put().to(update_victron_instance))
+                .route("/api/v1/victron/{name}", web::delete().to(delete_victron_instance))
                 // WebSocket and HA integration
                 .route("/api/v1/ws/configChanges", web::get().to(ws_config_changes))
                 .route("/api/v1/ws/live", web::get().to(ws_live_events))
@@ -1093,6 +1438,13 @@ impl ApiManager {
                 .route("/api/v1/ha/config/reload", web::post().to(ha_reload_config))
                 // MQTT migration
                 .route("/api/v1/mqtt/cleanup", web::post().to(force_mqtt_cleanup))
+                // Discovered devices
+                .route("/api/v1/discovered", web::get().to(get_discovered_summary))
+                .route("/api/v1/discovered/{protocol}", web::get().to(get_discovered_protocol))
+                .route("/api/v1/discovered/{protocol}/{instance}", web::get().to(get_discovered_instance))
+                .route("/api/v1/discovered/{protocol}/{instance}/{device_id}", web::get().to(get_discovered_device))
+                .route("/api/v1/discovered/{protocol}/{instance}/{device_id}", web::patch().to(update_discovered_device))
+                .route("/api/v1/discovered/{protocol}/{instance}/{device_id}", web::delete().to(delete_discovered_device))
                 // Prometheus
                 .route("/prometheus/metrics", web::get().to(e2m_prometheus_generic))
                 .route("/prometheus/metering", web::get().to(e2m_prometheus_metering))

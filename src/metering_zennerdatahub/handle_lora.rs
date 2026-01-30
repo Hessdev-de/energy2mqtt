@@ -7,7 +7,7 @@ use tokio::{fs, sync::Mutex, time};
 use walkdir::WalkDir;
 use lazy_static::lazy_static;
 
-use crate::{MeteringData, StoredData, config::ZennerDatahubConfig, get_id, get_unix_ts, metering_zennerdatahub::{PayLoadMessage, ZennerDatahubData}, models::DeviceProtocol, mqtt::{SubscribeData, Transmission, home_assistant::{HaComponent2, HaSensor, get_command_topic, get_state_topic}}};
+use crate::{MeteringData, StoredData, config::ZennerDatahubConfig, get_id, get_unix_ts, get_discovered_devices, metering_zennerdatahub::{PayLoadMessage, ZennerDatahubData}, models::DeviceProtocol, mqtt::{SubscribeData, Transmission, home_assistant::{HaComponent2, HaSensor, get_command_topic, get_state_topic}}};
 
 
 #[derive(Deserialize, Clone)]
@@ -342,13 +342,51 @@ pub async fn handle_incoming_lora(data: &mut Arc<Mutex<ZennerDatahubData>>, inst
     let proto = format!("zridh_{dh_proto}");
     let dev_eui = json.data.ownernumber;
 
+    // Touch the device in discovered devices store to track first_seen/last_seen
+    // This happens for every message, even if export is disabled
+    let _discovered_device = if let Some(store) = get_discovered_devices() {
+        match store.touch_device("zenner_datahub", &instance, &dev_eui, None, None) {
+            Ok(device) => Some(device),
+            Err(e) => {
+                debug!("Failed to touch discovered device: {}", e);
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    // Check if this device should be exported to Home Assistant
+    let should_export = get_discovered_devices()
+        .map(|store| store.should_export("zenner_datahub", &instance, &dev_eui))
+        .unwrap_or(true);
+
     if !d.known_devices.contains_key(&dev_eui) {
+        // Skip HA discovery if export is disabled
+        if !should_export {
+            info!("Device {dev_eui} has export_to_ha disabled, skipping HA discovery");
+            return;
+        }
+
         /*  This device is not known to home assistant, send discovery */
         info!("New device {dev_eui} received from ZENNER Datahub, checking if known defintion is available");
 
         match find_defintion(&dev_eui, &mut d.defs, Some(&json.data.unmapped)).await {
             Some(mut def) => {
+                // Update discovered device with manufacturer/model info
+                if let Some(store) = get_discovered_devices() {
+                    let _ = store.touch_device(
+                        "zenner_datahub",
+                        &instance,
+                        &dev_eui,
+                        Some(def.manufacturer.clone()),
+                        Some(def.model.clone()),
+                    );
+                }
+
                 /* Build Home Assistant discovery message */
+                // Note: Custom names from discovered_devices could be applied here in the future
+                // by adding a .device_name() method to HaSensor
                 let mut disc = HaSensor::new(proto.clone(), dev_eui.clone(),
                                                         Some(def.manufacturer.clone()),
                                                         Some(def.model.clone()))
@@ -777,6 +815,12 @@ pub async fn handle_incoming_lora(data: &mut Arc<Mutex<ZennerDatahubData>>, inst
     if device_time == 0 {
         error!("Neither ts.eventtime nor ts.device contains correct data, faking date information for {dev_eui}");
         device_time = now;
+    }
+
+    // Skip publishing metering data if export is disabled for this device
+    if !should_export {
+        debug!("Device {dev_eui} has export_to_ha disabled, skipping metering data");
+        return;
     }
 
     /* Now send the metering data  */

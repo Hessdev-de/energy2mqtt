@@ -18,6 +18,7 @@ pub mod metering_knx;
 pub mod obis_utils;
 pub mod storage;
 pub mod task_monitor;
+pub mod discovered_devices;
 
 // Re-export common types for easier access
 pub use models::{Device, DeviceType, DeviceStatus};
@@ -34,6 +35,7 @@ pub use metering_zennerdatahub::ZennerDatahubManager;
 pub use metering_knx::KnxManager;
 pub use storage::StoredData;
 pub use task_monitor::{TaskMonitor, TaskInfo, TaskStatus};
+pub use discovered_devices::{init_discovered_devices, get_discovered_devices, DiscoveredDevice, DiscoveredDeviceUpdate};
 
 pub fn get_unix_ts() -> u64 {
     return std::time::SystemTime::now().duration_since(std::time::SystemTime::UNIX_EPOCH).unwrap().as_secs();
