@@ -29,6 +29,7 @@ pub struct Topic {
     pub payload: String,
     pub updated: u64,
     pub json_key: String,
+    pub device_id: String,
     pub need_read: bool,
 }
 
@@ -38,6 +39,7 @@ impl Topic {
             payload: payload,
             updated: get_unix_ts(),
             json_key: "".to_string(),
+            device_id: "".to_string(),
             need_read: true,
         }
     }
@@ -47,6 +49,17 @@ impl Topic {
             payload: payload,
             updated: get_unix_ts(),
             json_key: key,
+            device_id: "".to_string(),
+            need_read: true,
+        }
+    }
+
+    pub fn new_with_device(payload: String, key: String, device_id: String) -> Self {
+        return Topic {
+            payload: payload,
+            updated: get_unix_ts(),
+            json_key: key,
+            device_id: device_id,
             need_read: true,
         }
     }
@@ -56,6 +69,7 @@ impl Topic {
             payload: payload,
             updated: get_unix_ts(),
             json_key: old.json_key.clone(),
+            device_id: old.device_id.clone(),
             need_read: true,
         }
     }
@@ -65,6 +79,7 @@ impl Topic {
             payload: "".to_string(),
             updated: 0,
             json_key: "".to_string(),
+            device_id: "".to_string(),
             need_read: true,
         }
     }
@@ -102,6 +117,23 @@ impl VictronData {
     }
 }
 
+/// Round a JSON value to 3 decimal places if it's a float
+fn round_value(val: Value) -> Value {
+    match val {
+        Value::Number(n) => {
+            if let Some(f) = n.as_f64() {
+                let rounded = (f * 1000.0).round() / 1000.0;
+                serde_json::Number::from_f64(rounded)
+                    .map(Value::Number)
+                    .unwrap_or_else(|| Value::Number(n))
+            } else {
+                Value::Number(n)
+            }
+        }
+        other => other,
+    }
+}
+
 impl VictronManager {
     pub fn new(sender: Sender<Transmission>) -> Self {
         let config: Vec<VictronConfig> = get_config_or_panic!("victron", ConfigBases::Victron);
@@ -123,8 +155,9 @@ impl VictronManager {
                 if change.operation != ConfigOperation::ADD || change.base != "victron" {
                     continue;
                 }
-                
+
                 /* we need to read the config now as this change is about our part of the code */
+                self.config = get_config_or_panic!("victron", ConfigBases::Victron);
                 break;
             }
         }
@@ -284,17 +317,13 @@ impl VictronManager {
                             }
 
                             sleep(Duration::from_secs(wait_time)).await;
-                            
-                            let config = data.lock().await.conf.clone();
 
-                            let mut meter_data = MeteringData::new().unwrap();
-                            meter_data.meter_name = config.name.clone();
-                            meter_data.protocol = DeviceProtocol::Victron;
-                            meter_data.id = get_id("victron".to_string(), &config.name.clone());
-                            meter_data.transmission_time = get_unix_ts();
-                            meter_data.metered_time = meter_data.transmission_time;
-        
+                            let config = data.lock().await.conf.clone();
                             let topics = data.lock().await.topic_mapping.clone();
+                            let timestamp = get_unix_ts();
+
+                            // Group topics by device_id
+                            let mut device_data: HashMap<String, HashMap<String, Value>> = HashMap::new();
 
                             for entry in topics.iter() {
                                 let tname = entry.0.clone();
@@ -310,6 +339,13 @@ impl VictronManager {
                                 /* skip internal json data */
                                 if tdata.json_key.starts_with("_") { continue; }
 
+                                /* Skip topics without a device_id (hub-level data) */
+                                let device_id = if tdata.device_id.is_empty() {
+                                    config.name.clone().to_lowercase().replace(" ", "_").replace("-", "_")
+                                } else {
+                                    tdata.device_id.clone()
+                                };
+
                                 /* We need to parse the json messages, we do it here because we have time */
                                 let doc = serde_json::from_str::<Value>(&tdata.payload);
                                 match doc {
@@ -318,16 +354,36 @@ impl VictronManager {
                                     }
                                     Ok(v) => {
                                         match v.get("value") {
-                                            Some(v) => { meter_data.metered_values.insert(tdata.json_key, v.clone()); }
+                                            Some(val) => {
+                                                device_data
+                                                    .entry(device_id)
+                                                    .or_insert_with(HashMap::new)
+                                                    .insert(tdata.json_key, round_value(val.clone()));
+                                            }
                                             None => { info!("[{host}:{port} {tname}] Malformed JSON found") }
                                         }
-                                        
                                     }
                                 }
                             }
-                            
-                            /* send the meter reading to the MQTT thread */
-                            let _ = send_dupe.send(Transmission::Metering(meter_data)).await;
+
+                            /* Send meter readings for each device cluster */
+                            for (device_id, values) in device_data {
+                                if values.is_empty() { continue; }
+
+                                let mut meter_data = MeteringData::new().unwrap();
+                                meter_data.meter_name = device_id.clone();
+                                meter_data.protocol = DeviceProtocol::Victron;
+                                meter_data.id = get_id("victron".to_string(), &device_id);
+                                meter_data.transmission_time = timestamp;
+                                meter_data.metered_time = timestamp;
+
+                                // Convert HashMap to serde_json::Map
+                                for (key, value) in values {
+                                    meter_data.metered_values.insert(key, value);
+                                }
+
+                                let _ = send_dupe.send(Transmission::Metering(meter_data)).await;
+                            }
 
                             sleep(duration).await;
                         }
@@ -355,6 +411,9 @@ impl VictronManager {
             }
 
             self.threads.clear();
+
+            /* Reload the config before restarting */
+            self.config = get_config_or_panic!("victron", ConfigBases::Victron);
         }
     }
 }
