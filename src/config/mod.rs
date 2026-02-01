@@ -142,6 +142,109 @@ pub struct OmsConfig {
     pub key: String,
 }
 
+/// Configuration for a single Victron cluster
+#[derive(Deserialize, Serialize, Clone, ToSchema, Debug)]
+pub struct VictronClusterConfig {
+    #[serde(default = "victron_cluster_enabled_default")]
+    pub enabled: bool,
+}
+
+fn victron_cluster_enabled_default() -> bool { true }
+
+/// Battery cluster options
+#[derive(Deserialize, Serialize, Clone, ToSchema, Debug)]
+pub struct VictronBatteryClusterConfig {
+    #[serde(default = "victron_cluster_enabled_default")]
+    pub enabled: bool,
+    /// Include Pylontech cell-level data (min/max cell voltage/temperature)
+    #[serde(default = "victron_cluster_enabled_default")]
+    pub include_cell_data: bool,
+}
+
+fn victron_battery_cluster_default() -> VictronBatteryClusterConfig {
+    VictronBatteryClusterConfig {
+        enabled: true,
+        include_cell_data: true,
+    }
+}
+
+/// All Victron export clusters
+#[derive(Deserialize, Serialize, Clone, ToSchema, Debug)]
+pub struct VictronClustersConfig {
+    /// Grid import/export energy and power (essential for HA Energy Dashboard)
+    #[serde(default = "victron_cluster_grid_default")]
+    pub grid_metering: VictronClusterConfig,
+
+    /// Battery SoC, power, temperature
+    #[serde(default = "victron_battery_cluster_default")]
+    pub battery: VictronBatteryClusterConfig,
+
+    /// PV yield and charger status
+    #[serde(default = "victron_cluster_solar_default")]
+    pub solar: VictronClusterConfig,
+
+    /// Detailed energy flow through inverter (advanced)
+    #[serde(default = "victron_cluster_inverter_default")]
+    pub inverter_flow: VictronClusterConfig,
+
+    /// Total PV, consumption, system state
+    #[serde(default = "victron_cluster_system_default")]
+    pub system_overview: VictronClusterConfig,
+
+    /// Per-phase voltage, current, power (advanced)
+    #[serde(default = "victron_cluster_phase_default")]
+    pub phase_details: VictronClusterConfig,
+
+    /// Temperature and tank sensors
+    #[serde(default = "victron_cluster_env_default")]
+    pub environment: VictronClusterConfig,
+
+    /// Error codes, alarms, device status
+    #[serde(default = "victron_cluster_diag_default")]
+    pub diagnostics: VictronClusterConfig,
+}
+
+fn victron_cluster_grid_default() -> VictronClusterConfig {
+    VictronClusterConfig { enabled: true }
+}
+
+fn victron_cluster_solar_default() -> VictronClusterConfig {
+    VictronClusterConfig { enabled: true }
+}
+
+fn victron_cluster_inverter_default() -> VictronClusterConfig {
+    VictronClusterConfig { enabled: false }  // Advanced, disabled by default
+}
+
+fn victron_cluster_system_default() -> VictronClusterConfig {
+    VictronClusterConfig { enabled: true }
+}
+
+fn victron_cluster_phase_default() -> VictronClusterConfig {
+    VictronClusterConfig { enabled: false }  // Advanced, disabled by default
+}
+
+fn victron_cluster_env_default() -> VictronClusterConfig {
+    VictronClusterConfig { enabled: false }  // Optional, disabled by default
+}
+
+fn victron_cluster_diag_default() -> VictronClusterConfig {
+    VictronClusterConfig { enabled: false }  // Optional, disabled by default
+}
+
+fn victron_clusters_default() -> VictronClustersConfig {
+    VictronClustersConfig {
+        grid_metering: victron_cluster_grid_default(),
+        battery: victron_battery_cluster_default(),
+        solar: victron_cluster_solar_default(),
+        inverter_flow: victron_cluster_inverter_default(),
+        system_overview: victron_cluster_system_default(),
+        phase_details: victron_cluster_phase_default(),
+        environment: victron_cluster_env_default(),
+        diagnostics: victron_cluster_diag_default(),
+    }
+}
+
 #[derive(Deserialize, Serialize, Clone, ToSchema)]
 pub struct VictronConfig {
     pub name: String,
@@ -154,6 +257,9 @@ pub struct VictronConfig {
     pub update_interval: u64,
     #[serde(default = "victron_enabled_default")]
     pub enabled: bool,
+    /// Export clusters - control which data is exported to Home Assistant
+    #[serde(default = "victron_clusters_default")]
+    pub clusters: VictronClustersConfig,
 }
 
 fn victron_broker_port_default() -> u16 { 1883 }

@@ -17,7 +17,7 @@ use rumqttc::AsyncClient;
 use serde_json::Value;
 use tokio::sync::{mpsc::Sender, Mutex};
 use crate::{
-    metering_victron::{utils::{self, read_topic_u64, set_topic}, Topic},
+    metering_victron::{utils::{self, read_topic_u64, read_topic_u64_cluster, set_topic}, Topic, VictronCluster},
     mqtt::{Transmission, home_assistant::{HaSensor, HaComponent2}}
 };
 use super::VictronData;
@@ -464,6 +464,7 @@ pub async fn run_initial_detection(
 ) -> bool {
     let devname = data.lock().await.conf.name.clone();
     let portal_id = utils::get_portal(&data).await;
+    let clusters = data.lock().await.conf.clusters.clone();
 
     info!("{log_prefix} Starting detection for Victron portal {}", portal_id);
 
@@ -476,9 +477,17 @@ pub async fn run_initial_detection(
     let mut hub_disc = build_hub_discovery(&devname, &portal_id);
 
     // ========== GRID METERS CLUSTER ==========
-    let meter_c = read_topic_u64(client, data,
-        &format!("N/{portal_id}/system/0/Ac/In/NumberOfAcInputs"),
-        "ac_meter_count".to_string()).await;
+    if !clusters.grid_metering.enabled {
+        info!("{log_prefix} Grid metering cluster disabled, skipping");
+    }
+
+    let meter_c = if clusters.grid_metering.enabled {
+        read_topic_u64(client, data,
+            &format!("N/{portal_id}/system/0/Ac/In/NumberOfAcInputs"),
+            "ac_meter_count".to_string()).await
+    } else {
+        None
+    };
 
     if let Some(meter_count) = meter_c {
         info!("{log_prefix} System has {meter_count} AC meters");
@@ -609,10 +618,18 @@ pub async fn run_initial_detection(
     }
 
     // ========== BATTERY CLUSTER ==========
-    let battery_data = utils::read_topic_value(client, data,
-        &format!("N/{portal_id}/system/0/Batteries"),
-        "_system_batteries".to_string()).await
-        .unwrap_or(Value::Null);
+    if !clusters.battery.enabled {
+        info!("{log_prefix} Battery cluster disabled, skipping");
+    }
+
+    let battery_data = if clusters.battery.enabled {
+        utils::read_topic_value(client, data,
+            &format!("N/{portal_id}/system/0/Batteries"),
+            "_system_batteries".to_string()).await
+            .unwrap_or(Value::Null)
+    } else {
+        Value::Null
+    };
 
     if let Some(battery_array) = battery_data.as_array() {
         info!("{log_prefix} Found {} batteries", battery_array.len());
@@ -679,7 +696,7 @@ pub async fn run_initial_detection(
                 "temperature".to_string(),
                 battery_device_id.clone()).await;
 
-            if is_pylontech {
+            if is_pylontech && clusters.battery.include_cell_data {
                 register_topic(client, data,
                     &format!("{base_topic}/System/MinCellTemperature"),
                     "min_cell_temp".to_string(),
@@ -708,9 +725,17 @@ pub async fn run_initial_detection(
     }
 
     // ========== PV CHARGERS CLUSTER ==========
-    let pv_charger_count = read_topic_u64(client, data,
-        &format!("N/{portal_id}/system/0/Dc/Pv/NumberOfTrackers"),
-        "_pv_tracker_count".to_string()).await.unwrap_or(0);
+    if !clusters.solar.enabled {
+        info!("{log_prefix} Solar cluster disabled, skipping");
+    }
+
+    let pv_charger_count = if clusters.solar.enabled {
+        read_topic_u64(client, data,
+            &format!("N/{portal_id}/system/0/Dc/Pv/NumberOfTrackers"),
+            "_pv_tracker_count".to_string()).await.unwrap_or(0)
+    } else {
+        0
+    };
 
     if pv_charger_count > 0 {
         info!("{log_prefix} System has {pv_charger_count} PV trackers");
@@ -818,9 +843,17 @@ pub async fn run_initial_detection(
     }
 
     // ========== VEBUS CLUSTER ==========
-    let vebus_instance = utils::read_topic_u64(client, data,
-        &format!("N/{portal_id}/system/0/VebusInstance"),
-        "_vebus_instance".to_string()).await.unwrap_or(0);
+    if !clusters.inverter_flow.enabled {
+        info!("{log_prefix} Inverter flow cluster disabled, skipping");
+    }
+
+    let vebus_instance = if clusters.inverter_flow.enabled {
+        utils::read_topic_u64(client, data,
+            &format!("N/{portal_id}/system/0/VebusInstance"),
+            "_vebus_instance".to_string()).await.unwrap_or(0)
+    } else {
+        0
+    };
 
     if vebus_instance != 0 {
         let base_topic = format!("N/{portal_id}/vebus/{vebus_instance}");

@@ -18,6 +18,19 @@ use std::time::{self, Duration};
 pub mod utils;
 pub mod detect;
 
+/// Cluster identifier for filtering exports
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum VictronCluster {
+    GridMetering,
+    Battery,
+    Solar,
+    InverterFlow,
+    SystemOverview,
+    PhaseDetails,
+    Environment,
+    Diagnostics,
+}
+
 pub struct VictronManager {
     sender: Sender<Transmission>,
     config_change: tokio::sync::broadcast::Receiver<ConfigChange>,
@@ -91,6 +104,8 @@ pub struct VictronData {
     pub portal_id: String,
     pub read_topics: Vec<String>,
     pub topic_mapping: HashMap<String, Option<Topic>>,
+    /// Maps topic to its cluster for filtering
+    pub topic_clusters: HashMap<String, VictronCluster>,
     pub conf: VictronConfig,
 }
 
@@ -100,8 +115,36 @@ impl VictronData {
             portal_id: "".to_string(),
             read_topics: Vec::new(),
             topic_mapping: HashMap::new(),
+            topic_clusters: HashMap::new(),
             conf: conf.clone(),
         };
+    }
+
+    /// Check if a cluster is enabled in the config
+    pub fn is_cluster_enabled(&self, cluster: &VictronCluster) -> bool {
+        match cluster {
+            VictronCluster::GridMetering => self.conf.clusters.grid_metering.enabled,
+            VictronCluster::Battery => self.conf.clusters.battery.enabled,
+            VictronCluster::Solar => self.conf.clusters.solar.enabled,
+            VictronCluster::InverterFlow => self.conf.clusters.inverter_flow.enabled,
+            VictronCluster::SystemOverview => self.conf.clusters.system_overview.enabled,
+            VictronCluster::PhaseDetails => self.conf.clusters.phase_details.enabled,
+            VictronCluster::Environment => self.conf.clusters.environment.enabled,
+            VictronCluster::Diagnostics => self.conf.clusters.diagnostics.enabled,
+        }
+    }
+
+    /// Register a topic with its cluster
+    pub fn register_topic_cluster(&mut self, json_key: &str, cluster: VictronCluster) {
+        self.topic_clusters.insert(json_key.to_string(), cluster);
+    }
+
+    /// Check if a topic's cluster is enabled
+    pub fn is_topic_enabled(&self, json_key: &str) -> bool {
+        match self.topic_clusters.get(json_key) {
+            Some(cluster) => self.is_cluster_enabled(cluster),
+            None => true, // Unknown topics are enabled by default
+        }
     }
 
     pub fn set_portal(&mut self, portal: String) {
