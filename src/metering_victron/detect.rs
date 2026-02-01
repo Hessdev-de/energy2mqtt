@@ -400,6 +400,48 @@ fn build_vebus_discovery(
         disc.add_cmp(key.to_string(), cmp);
     }
 
+    // AC Output power measurements (per phase and total)
+    let cmp = HaComponent2::new()
+        .name("AC Output Power".to_string())
+        .device_class("power".to_string())
+        .unit_of_measurement("W".to_string())
+        .state_class("measurement".to_string());
+    disc.add_cmp("ac_out_power".to_string(), cmp);
+
+    for p in 1..=3 {
+        let cmp = HaComponent2::new()
+            .name(format!("AC Output Power L{}", p))
+            .device_class("power".to_string())
+            .unit_of_measurement("W".to_string())
+            .state_class("measurement".to_string());
+        disc.add_cmp(format!("ac_out_power_l{}", p), cmp);
+    }
+
+    // AC Input power measurements (per phase and total)
+    let cmp = HaComponent2::new()
+        .name("AC Input Power".to_string())
+        .device_class("power".to_string())
+        .unit_of_measurement("W".to_string())
+        .state_class("measurement".to_string());
+    disc.add_cmp("ac_in_power".to_string(), cmp);
+
+    for p in 1..=3 {
+        let cmp = HaComponent2::new()
+            .name(format!("AC Input Power L{}", p))
+            .device_class("power".to_string())
+            .unit_of_measurement("W".to_string())
+            .state_class("measurement".to_string());
+        disc.add_cmp(format!("ac_in_power_l{}", p), cmp);
+    }
+
+    // DC Power
+    let cmp = HaComponent2::new()
+        .name("DC Power".to_string())
+        .device_class("power".to_string())
+        .unit_of_measurement("W".to_string())
+        .state_class("measurement".to_string());
+    disc.add_cmp("dc_power".to_string(), cmp);
+
     disc
 }
 
@@ -555,6 +597,7 @@ pub async fn run_initial_detection(
 
             // Send Grid Meter discovery
             let disc = build_grid_meter_discovery(&devname, i, &serial, &productname, nr_phases);
+            disc.get_disc_topic();
             let _ = sender.send(Transmission::AutoDiscovery2(disc)).await;
         }
 
@@ -816,6 +859,39 @@ pub async fn run_initial_detection(
                 vebus_device_id.clone()).await;
         }
 
+        // Register AC Output power topics (per phase)
+        for p in 1..=3 {
+            register_topic(client, data,
+                &format!("{base_topic}/Ac/Out/L{p}/P"),
+                format!("ac_out_power_l{p}"),
+                vebus_device_id.clone()).await;
+        }
+
+        // Register AC Input power topics (per phase)
+        for p in 1..=3 {
+            register_topic(client, data,
+                &format!("{base_topic}/Ac/ActiveIn/L{p}/P"),
+                format!("ac_in_power_l{p}"),
+                vebus_device_id.clone()).await;
+        }
+
+        // Register total AC Output power
+        register_topic(client, data,
+            &format!("{base_topic}/Ac/Out/P"),
+            "ac_out_power".to_string(),
+            vebus_device_id.clone()).await;
+
+        // Register total AC Input power
+        register_topic(client, data,
+            &format!("{base_topic}/Ac/ActiveIn/P"),
+            "ac_in_power".to_string(),
+            vebus_device_id.clone()).await;
+
+        // Register DC power
+        register_topic(client, data,
+            &format!("{base_topic}/Dc/0/Power"),
+            "dc_power".to_string(),
+            vebus_device_id.clone()).await;
 
         // Send VEBus discovery
         let disc = build_vebus_discovery(&devname, vebus_instance, &productname);

@@ -1,5 +1,5 @@
 use serde_json::Value;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, watch};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use crate::config::{ConfigChange, ConfigOperation, VictronConfig};
@@ -11,8 +11,9 @@ use log::{debug, error, info};
 use tokio::sync::mpsc::Sender;
 use rumqttc::{AsyncClient, Event, MqttOptions, Packet};
 use std::collections::HashMap;
+use std::fs::read;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{self, Duration};
 
 pub mod utils;
 pub mod detect;
@@ -90,7 +91,7 @@ pub struct VictronData {
     pub portal_id: String,
     pub read_topics: Vec<String>,
     pub topic_mapping: HashMap<String, Option<Topic>>,
-    pub conf: VictronConfig
+    pub conf: VictronConfig,
 }
 
 impl VictronData {
@@ -99,7 +100,7 @@ impl VictronData {
             portal_id: "".to_string(),
             read_topics: Vec::new(),
             topic_mapping: HashMap::new(),
-            conf: conf.clone()
+            conf: conf.clone(),
         };
     }
 
@@ -227,9 +228,9 @@ impl VictronManager {
                                             Some(old) => { Topic::create_from(old, payload.clone())},
                                             None => { Topic::new(payload.clone()) },
                                         };
-                        
+
                                         data.topic_mapping.insert(
-                                                    topic, 
+                                                    topic,
                                                     Some(tdata)
                                                     );
                                 } else {
@@ -280,7 +281,48 @@ impl VictronManager {
                 
                 self.threads.push(handle);
 
+                let data_clone = data.clone();
+                let client_clone = client.clone();
+                handle = tokio::spawn(async move {
+                    let duration = Duration::from_secs(60);
+                    loop {
+                        /* Every minute we will issue a read request if any of our data is older than 60 seconds */
+                        sleep(duration).await;
 
+                        let now = get_unix_ts();
+                        let mut need_read = false;
+
+                        let topics = data_clone.lock().await.topic_mapping.clone();
+
+                        for (key, topic) in topics {
+                            if let Some(t) = topic {
+                                if t.device_id.is_empty() || t.json_key.starts_with("_") {
+                                    continue; /* Only for the data used in the devices */
+                                }
+                                if t.updated < now - 60 {
+                                    /* For the first outdated value to be found we exit */
+                                    need_read = true;
+                                    break;
+                                }
+                            }
+                        }
+
+
+                        if need_read {
+                            let read_topics = data_clone.lock().await.read_topics.clone();
+
+                            for topic in read_topics {
+                                debug!("Sending read request for {topic}");
+                                let _ = client_clone.publish(topic, 
+                                            rumqttc::QoS::AtLeastOnce, false, "").await;
+                            }
+                        }
+                    }
+                });
+
+                self.threads.push(handle);
+
+                let data_clone = data.clone();
                 let host = conf.broker_host.clone();
                 let port = conf.broker_port;
                 let send_dupe = self.sender.clone();
@@ -303,20 +345,11 @@ impl VictronManager {
                         }
 
                         let _ = detect::run_initial_detection(&client, &data, &send_dupe, format!("[{host}:{port}]")).await;
-                        
+                        let mut read_out = true;
+
                         loop {
                             /* Trigger reading, but copy the list because we are not allowed to keep the lock */
-                            let read_topics = data.lock().await.read_topics.clone();
-                            let mut wait_time = 0u64;
-                            for topic in read_topics {
-                                debug!("Starting to read from {topic}");
-                                let _ = client.publish(topic, 
-                                            rumqttc::QoS::AtLeastOnce, false, "").await;
-                                /* Each topic adds 1 second to the read timeout because we should never flood the GX device */
-                                wait_time += 1;
-                            }
-
-                            sleep(Duration::from_secs(wait_time)).await;
+                            sleep(Duration::from_secs(5u64)).await;
 
                             let config = data.lock().await.conf.clone();
                             let topics = data.lock().await.topic_mapping.clone();
@@ -384,8 +417,6 @@ impl VictronManager {
 
                                 let _ = send_dupe.send(Transmission::Metering(meter_data)).await;
                             }
-
-                            sleep(duration).await;
                         }
                     }
                 });
