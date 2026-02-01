@@ -3,6 +3,13 @@
 //! This library provides functionality for storing, retrieving, and configuring
 //! IoT devices with a SQLite-based persistence layer.
 
+/// Application version - set via BUILD_VERSION env var at compile time,
+/// falls back to "local" if not set
+pub const VERSION: &str = match option_env!("BUILD_VERSION") {
+    Some(v) => v,
+    None => "local",
+};
+
 pub mod device_manager;
 pub mod models;
 pub mod api;

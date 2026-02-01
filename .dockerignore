@@ -2,3 +2,5 @@ target/
 config/
 .git*
 .vscode
+.github/
+e2m.yaml
