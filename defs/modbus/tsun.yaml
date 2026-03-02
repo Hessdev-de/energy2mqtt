@@ -1,0 +1,141 @@
+manufacturer: TSUN
+model: Micro Battery
+registers:
+
+  - name: operation_mode
+    input_type: Holding
+    register: 5040
+    length: 1
+    format: UInt16
+    scaler: 1.0
+    description: "Operational Mode"
+    mapping:
+      - "0.0": "Standby"
+      - "1.0": "Plan mode"
+      - "2.0": "Battery"
+      - "3.0": "Remote Control"
+      - "4.0": "N/A"
+      - "5.0": "Scheduling Mode (Grid)"
+      - "6.0": "Realtime Tariff"
+
+  - name: dispatch_mode
+    input_type: Holding
+    register: 5041
+    length: 1
+    format: UInt16
+    scaler: 1.0
+    description: "Dispatching Mode"
+    mapping:
+      - "0.0": "Numeric"
+      - "1.0": "Percentage"
+
+  - name: dispatch_power
+    input_type: Holding
+    register: 5042
+    length: 1
+    format: Int16
+    scaler: 1.0
+    description: "Power"
+    state_class: "power"
+    unit_of_measurement: "W"
+
+  - name: meter_type
+    input_type: Holding
+    register: 5047
+    length: 1
+    format: Int16
+    scaler: 1.0
+    description: "Meter type selected"
+    mapping:
+      - "0.0": "None"
+      - "1.0": "Single-phase WiFi"
+      - "2.0": "Three-phase WiFi"
+      - "3.0": "Single-phase RS485"
+      - "4.0": "Three-phase RS485"
+      - "5.0": "Single-phase Shelly"
+      - "6.0": "Three-phase Shelly"
+
+  - name: sys_operating_mode
+    input_type: Input
+    register: 3000
+    length: 1
+    format: UInt16
+    scaler: 1.0
+    description: "System operation mode"
+    mapping:
+      - "0.0": "Shutdown"
+      - "1.0": "BMS offline (disconnected)"
+      - "2.0": "Off-grid"
+      - "3.0": "Grid connected"
+      - "4.0": "Fault"
+
+  - name: battery_voltage
+    input_type: Input
+    register: 3016
+    length: 1
+    format: UInt16
+    scaler: 0.1
+    description: "Battery"
+    device_class: voltage
+    unit_of_measurement: "V"
+
+  - name: battery_current
+    input_type: Input
+    register: 3017
+    length: 1
+    format: UInt16
+    scaler: 0.1
+    description: "Battery"
+    device_class: current
+    unit_of_measurement: "A"
+
+  - name: battery_power
+    input_type: Input
+    register: 3018
+    length: 1
+    format: UInt16
+    scaler: 1.0
+    description: "Battery"
+    device_class: power
+    unit_of_measurement: "W"
+
+  - name: soc
+    input_type: Input
+    register: 3019
+    length: 1
+    format: UInt16
+    scaler: 1.0
+    description: "State of Charge"
+    unit_of_measurement: "%"
+    state_class: measurement
+
+  - name: grid_power
+    input_type: Input
+    register: 3034
+    length: 1
+    format: UInt16
+    scaler: 1.0
+    description: "Grid"
+    device_class: power
+    unit_of_measurement: "W"
+
+  - name: grid_reactive
+    input_type: Input
+    register: 3036
+    length: 1
+    format: UInt16
+    scaler: 1.0
+    description: "Grid"
+    device_class: reactive_power
+    unit_of_measurement: "var"
+
+  - name: temperature
+    input_type: Input
+    register: 3082
+    length: 1
+    format: UInt16
+    scaler: 0.1
+    description: "Internal temperature"
+    device_class: temperature
+    unit_of_measurement: "°C"
+
