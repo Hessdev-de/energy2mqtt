@@ -1,11 +1,15 @@
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime};
+use crate::CALLBACKS;
+use crate::mqtt::{PublishData, SubscribeData};
 use crate::{config::{ConfigBases, ConfigChange, ConfigOperation, ModbusConfig, ModbusDeviceConfig, ModbusHubConfig, ModbusProtoConfig}, metering_modbus::registers::Register, models::DeviceProtocol, mqtt::{home_assistant::{HaSensor, HaComponent2}, Transmission, publish_protocol_count}, task_monitor::TaskMonitor, MeteringData, CONFIG};
 use evalexpr::{ContextWithMutableVariables, DefaultNumericTypes, HashMapContext};
 use log::{debug, error, info, warn};
 use rmodbus::{client::ModbusRequest, guess_response_frame_len, ModbusProto};
+use serde::{Deserialize, Serialize};
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::TcpStream, sync::mpsc::Sender, time::timeout};
 pub mod registers;
+pub mod set_device_parms;
 
 /// Errors that can occur during Modbus communication
 #[derive(Debug)]
@@ -84,6 +88,13 @@ pub struct ModbusDevice {
     registers: Vec<registers::Register>
 }
 
+#[derive(Deserialize)]
+struct ModbusMqttCommand {
+    function: String,
+    device: String,
+    registers: HashMap<String, Vec<u8>>
+}
+
 #[derive(Clone)]
 pub struct ModbusHub
 {
@@ -114,7 +125,7 @@ impl ModbusManger
                 if change.operation != ConfigOperation::ADD || change.base != "modbus" {
                     continue;
                 }
-                
+
                 /* we need to read the config now as this change is about our part of the code */
                 break;
             }
@@ -133,9 +144,9 @@ impl ModbusManger
                 device_count += config_hub.devices.len() as u32;
 
                 let hub_sender = self.sender.clone();
-                let mut hub = ModbusHub { 
+                let mut hub = ModbusHub {
                     config: config_hub.clone(),
-                    devices: { 
+                    devices: {
                         let mut devs: Vec<ModbusDevice> = Vec::new();
                         for dev in config_hub.devices.iter() {
                             let (regs, manu, model) = registers::get_registers(&dev.meter);
@@ -204,18 +215,20 @@ impl ModbusManger
                         devs
                     }
                 };
-              
+
                 /* Find the sleeptime of this hub, do not use a too small value as it may halt the application  */
                 let mut hub_inveral_sec: u32 = 60;
                 for device in hub.devices.iter() {
                     hub_inveral_sec = std::cmp::min(hub_inveral_sec, device.config.read_interval);
                 }
 
-                /* No check again to round the read intervals */
+                /*
+                 * Now check again to round the read intervals
+                 */
                 for device in hub.devices.iter_mut() {
                     /* Round up based on the hubs read interval */
                     device.waits_till_read = device.config.read_interval / hub_inveral_sec;
-                
+
                     let new_sec = device.waits_till_read * hub_inveral_sec;
                     if new_sec != device.config.read_interval {
                         /* Print a warning if the readouts changed */
@@ -224,7 +237,14 @@ impl ModbusManger
                     }
                 }
 
-                
+                /* Register our callbacks */
+                let (sender, mut write_receiver) = tokio::sync::mpsc::channel(10);
+                for device in hub.devices.iter() {
+                    let _ = hub_sender.send(Transmission::Subscribe(SubscribeData {
+                                                                topic: format!("energy2mqtt/set/modbus/{}",device.config.name),
+                                                                sender: sender.clone() })).await;
+                }
+
                 let hub_name_for_task = config_hub.name.clone();
                 self.task_monitor.spawn(
                     &format!("hub_{}", hub_name_for_task),
@@ -243,30 +263,60 @@ impl ModbusManger
                         let mut conn_state = HubConnectionState::new(&hub.config);
 
                         loop {
-                            /* Now sleep for one tick of hub_inveral_sec */
-                            tokio::time::sleep(hub_delay).await;
+                            tokio::select! {
+                                /* Now sleep for one tick of hub_inveral_sec */
+                                _ =  tokio::time::sleep(hub_delay) => {
+                                    /* Increment wait counters for all devices */
+                                    for device in hub.devices.iter_mut() {
+                                        device.cur_waits += 1;
+                                    }
 
-                            /* Increment wait counters for all devices */
-                            for device in hub.devices.iter_mut() {
-                                device.cur_waits += 1;
+                                    /* Read all devices that are due using persistent connection
+                                    * This is critical for RTU over TCP where converters typically
+                                    * only support one active connection at a time */
+                                    read_hub_devices(
+                                        &socket_addr,
+                                        &mut hub.devices,
+                                        &hub.config.name,
+                                        proto,
+                                        &hub_sender,
+                                        &mut conn_state,
+                                    ).await;
+                                },
+                                /* We got a write command, we may miss a beat but that is ok */
+                                Some((topic, payload)) = write_receiver.recv() => {
+                                    /* Check which device we need to call out to */
+                                    let command: ModbusMqttCommand = match serde_json::from_slice(payload.as_bytes()) {
+                                        Ok(d) => d,
+                                        Err(e) => {
+                                            error!("Malformed JSON received: {:?} -> {}", e, payload);
+                                            continue;
+                                        }
+                                    };
+
+                                    if command.function != "modbus_set" {
+                                        error!("Function {} is unknown for {}", command.function, topic);
+                                        continue;
+                                    }
+
+                                    /* Find the device to use */
+                                    for device in hub.devices.iter() {
+                                        if device.config.name != command.device {
+                                            continue;
+                                        }
+
+                                        /* We found our device */
+                                        set_device_parms::set(&socket_addr, &hub.config.name, &command.registers, device, proto, &mut conn_state).await;
+                                    }
+
+                                }
+
                             }
-
-                            /* Read all devices that are due using persistent connection
-                             * This is critical for RTU over TCP where converters typically
-                             * only support one active connection at a time */
-                            read_hub_devices(
-                                &socket_addr,
-                                &mut hub.devices,
-                                &hub.config.name,
-                                proto,
-                                &hub_sender,
-                                &mut conn_state,
-                            ).await;
 
                             // Log connection health if there are failures
                             if conn_state.consecutive_failures > 0 {
                                 warn!("Hub {}: {} consecutive failures",
-                                      hub.config.name, conn_state.consecutive_failures);
+                                    hub.config.name, conn_state.consecutive_failures);
                             }
                         }
                     }
@@ -457,6 +507,21 @@ async fn connect_to_hub_with_retry(
     }
 }
 
+/* Helper defition for the RAW export */
+#[derive(Serialize)]
+struct E2MRegister {
+    //r#type: u32,
+    address: i32,
+    data: Vec<u8>
+}
+
+#[derive(Serialize)]
+struct E2MRawData {
+    hub: String,
+    device: String,
+    registers: Vec<E2MRegister>,
+}
+
 /// Read registers from a single device using an existing connection
 async fn read_device_registers(
     stream: &mut TcpStream,
@@ -476,6 +541,13 @@ async fn read_device_registers(
     let mut context = HashMapContext::<DefaultNumericTypes>::new();
     // Store SunSpec scale factors for later application
     let mut scale_factors: HashMap<String, i16> = HashMap::new();
+
+    /* We want to send the raw data to mqtt */
+    let mut raw_data = E2MRawData {
+        hub: hub_name.to_string(),
+        device: device.config.name.clone(),
+        registers: Vec::new()
+    };
 
     for reg in &device.registers {
         let reg = match reg {
@@ -561,6 +633,8 @@ async fn read_device_registers(
         // Process the response - use f64 to handle all numeric types
         let parsed_value: Result<f64, String>;
         let mut string_value: Option<String> = None;
+
+        raw_data.registers.push( E2MRegister { address: reg.register as i32, data: response.clone() });
 
         match reg.format {
             registers::ModbusRegisterFormat::Int32 => {
@@ -741,6 +815,17 @@ async fn read_device_registers(
     }
 
     let _ = hub_sender.send(Transmission::Metering(meter_data)).await;
+
+    /* Now publish the raw data. In that mode we work as transparent bridge for the data to flow */
+    let p = PublishData {
+        topic: format!("energy2mqtt/raw/modbus/{}", hub_name),
+        payload: serde_json::to_string(&raw_data).unwrap_or("{}".to_string()),
+        qos: 1,
+        retain: false,
+    };
+
+    let _ = hub_sender.send(Transmission::Publish(p)).await;
+
     Ok(())
 }
 
