@@ -1,0 +1,17 @@
+Source: energy2mqtt
+Section: admin
+Priority: optional
+Maintainer: Sebastian Heß <git@hessdev.de>
+Standards-Version: 4.6.0.1
+Homepage: https://www.energy2mqtt.org
+Description: energy2mqtt Source
+Build-Depends: debhelper-compat (= 13),
+               dh-cargo,
+               cargo,
+               libseccomp-dev
+
+Package: energy2mqtt
+Architecture: all
+Multi-Arch: foreign
+Depends: ${misc:Depends}
+Description: energy2mqtt - Metering swiss army knife

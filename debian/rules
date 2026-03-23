@@ -1,0 +1,41 @@
+#!/usr/bin/make -f
+export DH_VERBOSE = 1
+export DH_COMPAT = 13
+
+clean:
+	[ -f BUILD_WITHOUT_CLEANING ] || cargo clean
+
+build:
+	dh_testdir
+	cargo build --release
+
+install: build
+	dh_testdir
+	dh_testroot
+	dh_prep
+	dh_installdirs
+	mkdir -p `pwd`/debian/energy2mqtt/usr/bin/
+	cp target/release/energy2mqtt `pwd`/debian/energy2mqtt/usr/bin/
+	# Copy our other stuff
+	mkdir -p `pwd`/debian/energy2mqtt/usr/share/energy2mqtt/{defs, ui}
+	cp -r ui `pwd`/debian/energy2mqtt/usr/share/energy2mqtt/ui
+	cp -r defs `pwd`/debian/energy2mqtt/usr/share/energy2mqtt/defs
+
+binary-arch: build install
+	dh_testdir
+	dh_testroot
+	dh_link
+	dh_strip
+	dh_compress
+	#dh_fixperms
+	dh_makeshlibs -V
+	dh_installdeb
+	dh_shlibdeps
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb
+
+
+binary: binary-arch
+.PHONY: build clean binary install
+

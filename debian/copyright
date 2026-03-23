@@ -1,0 +1,8 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: energy2mqtt
+Source: https://www.energy2mqtt.org
+
+Files: *
+Copyright: 2026 Sebastian Heß
+License: GPLv2 or any later
+
