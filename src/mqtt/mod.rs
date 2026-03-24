@@ -277,7 +277,7 @@ impl MqttManager {
         let (mtx,mrx) = tokio::sync::mpsc::channel(100);
 
         info!("MQTT connection starting up");
-        let mut config = get_config_or_panic!("mqtt", ConfigBases::Mqtt);
+        let config = get_config_or_panic!("mqtt", ConfigBases::Mqtt);
 
         // Check if migration is needed (will be run async after connection)
         let needs_migration = config.discovery_version < MQTT_DISCOVERY_VERSION_CURRENT;
@@ -288,6 +288,8 @@ impl MqttManager {
         let mut mqttoptions   = MqttOptions::new(config.client_name.clone(), config.host.clone(), config.port);
         mqttoptions.set_keep_alive(Duration::from_secs(5));
         mqttoptions.set_credentials(config.user.clone(), config.pass.clone());
+
+        info!("Connection setup to {}@{}:{}", config.user, config.host, config.port);
 
         // Set last will message for availability - broker publishes "offline" if we disconnect unexpectedly
         let last_will = rumqttc::LastWill::new(
@@ -409,7 +411,7 @@ impl MqttManager {
                         // Only log errors periodically to avoid flooding
                         let now = Instant::now();
                         if consecutive_errors == 1 || now.duration_since(last_error_log).as_secs() >= 30 {
-                            error!("MQTT connection error: {:?} (attempt {}, next retry in {}s)",
+                            error!("MQTT connection error: to {:?} (attempt {}, next retry in {}s)",
                                    e, consecutive_errors, backoff_secs);
                             last_error_log = now;
                         }

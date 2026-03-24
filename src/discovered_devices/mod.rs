@@ -6,10 +6,12 @@
 use std::{collections::HashMap, fs, path::PathBuf, sync::RwLock};
 use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "api")]
 use utoipa::ToSchema;
 
 /// Represents a single discovered device
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "api", derive(ToSchema))]
 pub struct DiscoveredDevice {
     /// User-editable friendly name
     pub name: String,
@@ -70,7 +72,8 @@ impl DiscoveredDevice {
 }
 
 /// Update request for a discovered device (partial update)
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "api", derive(ToSchema))]
 pub struct DiscoveredDeviceUpdate {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
@@ -90,6 +93,7 @@ pub type ProtocolInstances = HashMap<String, InstanceDevices>;
 
 /// The complete discovered devices store
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "api", derive(ToSchema))]
 pub struct DiscoveredDevicesData {
     #[serde(default)]
     pub version: u32,

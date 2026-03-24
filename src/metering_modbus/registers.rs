@@ -22,6 +22,7 @@ pub enum ModbusRegisterFormat {
     String,
     /// SunSpec scale factor - int16 used as power of 10 exponent
     SunSSF,
+    Coil,
 }
 
 #[derive(Clone, PartialEq, Deserialize)]
@@ -60,6 +61,8 @@ pub struct ModbusRegister {
     pub platform: HAPlatform,
     #[serde(default)]
     pub mappings: Vec<Mapping>,
+    #[serde(default)]
+    pub command_template: String,
 }
 
 #[derive(Deserialize, Clone)]

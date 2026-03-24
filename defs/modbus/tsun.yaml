@@ -36,6 +36,7 @@ registers:
     format: Int16
     scaler: 1.0
     description: "Power"
+    device_class: "number"
     state_class: "power"
     unit_of_measurement: "W"
 
@@ -98,6 +99,14 @@ registers:
     description: "Battery"
     device_class: power
     unit_of_measurement: "W"
+  
+  - name: soh
+    input_type: Input
+    register: 4663
+    length: 1
+    format: UInt16
+    scaler: 1.0
+    description: "State of health"
 
   - name: soc
     input_type: Input
@@ -139,3 +148,10 @@ registers:
     device_class: temperature
     unit_of_measurement: "°C"
 
+  - name: bms_connection
+    input_type: Holding
+    register: 4819
+    length: 1
+    format: UInt16
+    scaler: 1.0
+    description: Set the desired BMS connection state

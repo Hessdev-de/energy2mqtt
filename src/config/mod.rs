@@ -2,6 +2,7 @@ use lazy_static::lazy_static;
 use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
 use serde_yml;
+#[cfg(feature = "api")]
 use utoipa::ToSchema;
 use std::error::Error;
 use std::fs::{self, File};
@@ -13,6 +14,7 @@ fn httpd_enabled_default() -> bool { return true }
 fn httpd_port_default() -> u16 { return 8240 }
 
 #[derive(Deserialize, Serialize, Clone)]
+#[cfg_attr(feature = "api", derive(ToSchema))]
 pub struct HttpdConfig {
     #[serde(default="httpd_enabled_default")]
     pub enabled: bool,
@@ -31,6 +33,7 @@ fn mqtt_discovery_version_default() -> u32 { 1 }
 pub const MQTT_DISCOVERY_VERSION_CURRENT: u32 = 2;
 
 #[derive(Deserialize, Serialize, Clone)]
+#[cfg_attr(feature = "api", derive(ToSchema))]
 pub struct MqttConfig {
     pub host: String,
     pub port: u16,
@@ -48,6 +51,7 @@ fn db_dbtype_default() -> String {return "sqlite".to_string() }
 fn db_uri_default() -> String { return "config/devices.db".to_string() }
 
 #[derive(Deserialize, Serialize, Clone)]
+#[cfg_attr(feature = "api", derive(ToSchema))]
 pub struct DatabaseConfig {
     #[serde(default="db_dbtype_default")]
     pub dbtype: String,
@@ -58,6 +62,7 @@ pub struct DatabaseConfig {
 fn discovered_devices_path_default() -> String { "discovered_devices.yaml".to_string() }
 
 #[derive(Deserialize, Serialize, Clone)]
+#[cfg_attr(feature = "api", derive(ToSchema))]
 pub struct StorageConfig {
     /// Path to the discovered devices file
     #[serde(default="discovered_devices_path_default")]
@@ -70,7 +75,8 @@ fn storage_default() -> StorageConfig {
     }
 }
 
-#[derive(Deserialize, Serialize, Clone, ToSchema)]
+#[derive(Deserialize, Serialize, Clone)]
+#[cfg_attr(feature = "api", derive(ToSchema))]
 pub struct ModbusDeviceConfig {
     pub name: String,
     pub meter: String,
@@ -78,7 +84,8 @@ pub struct ModbusDeviceConfig {
     pub read_interval: u32,
 }
 
-#[derive(Deserialize, Serialize, Clone, PartialEq, ToSchema)]
+#[derive(Deserialize, Serialize, Clone, PartialEq)]
+#[cfg_attr(feature = "api", derive(ToSchema))]
 pub enum ModbusProtoConfig {
     TCP,
     RTU,
@@ -89,7 +96,8 @@ fn modbus_hubs_devices_default() -> Vec<ModbusDeviceConfig> { return Vec::new() 
 fn modbus_hub_connection_timeout_default() -> u64 { 10 }
 fn modbus_hub_read_timeout_default() -> u64 { 5 }
 
-#[derive(Deserialize, Serialize, Clone, ToSchema)]
+#[derive(Deserialize, Serialize, Clone)]
+#[cfg_attr(feature = "api", derive(ToSchema))]
 pub struct ModbusHubConfig
 {
     pub name: String,
@@ -107,12 +115,14 @@ pub struct ModbusHubConfig
 
 fn modbus_hubs_default() -> Vec<ModbusHubConfig> { return Vec::new() }
 #[derive(Deserialize, Serialize, Clone)]
+#[cfg_attr(feature = "api", derive(ToSchema))]
 pub struct ModbusConfig {
     #[serde(default="modbus_hubs_default")]
     pub hubs: Vec<ModbusHubConfig>,
 }
 
 #[derive(Deserialize, Serialize, Clone, PartialEq)]
+#[cfg_attr(feature = "api", derive(ToSchema))]
 pub enum ConfigOperation {
     ADD,
     DELETE,
@@ -120,6 +130,7 @@ pub enum ConfigOperation {
 }
 
 #[derive(Deserialize, Serialize, Clone)]
+#[cfg_attr(feature = "api", derive(ToSchema))]
 pub struct ConfigChange {
     pub operation: ConfigOperation,
     pub base: String, /* This is like mqtt, modbus and so on */
@@ -130,12 +141,14 @@ pub struct Callbacks {
 }
 
 #[derive(Deserialize, Serialize, Clone)]
+#[cfg_attr(feature = "api", derive(ToSchema))]
 pub struct TibberConfig {
     pub name: String,
     pub account_token: String,
 }
 
-#[derive(Deserialize, Serialize, Clone, ToSchema)]
+#[derive(Deserialize, Serialize, Clone)]
+#[cfg_attr(feature = "api", derive(ToSchema))]
 pub struct OmsConfig {
     pub name: String,
     pub id: String,
@@ -143,7 +156,8 @@ pub struct OmsConfig {
 }
 
 /// Configuration for a single Victron cluster
-#[derive(Deserialize, Serialize, Clone, ToSchema, Debug)]
+#[derive(Deserialize, Serialize, Clone, Debug)]
+#[cfg_attr(feature = "api", derive(ToSchema))]
 pub struct VictronClusterConfig {
     #[serde(default = "victron_cluster_enabled_default")]
     pub enabled: bool,
@@ -152,7 +166,8 @@ pub struct VictronClusterConfig {
 fn victron_cluster_enabled_default() -> bool { true }
 
 /// Battery cluster options
-#[derive(Deserialize, Serialize, Clone, ToSchema, Debug)]
+#[derive(Deserialize, Serialize, Clone, Debug)]
+#[cfg_attr(feature = "api", derive(ToSchema))]
 pub struct VictronBatteryClusterConfig {
     #[serde(default = "victron_cluster_enabled_default")]
     pub enabled: bool,
@@ -169,7 +184,8 @@ fn victron_battery_cluster_default() -> VictronBatteryClusterConfig {
 }
 
 /// All Victron export clusters
-#[derive(Deserialize, Serialize, Clone, ToSchema, Debug)]
+#[derive(Deserialize, Serialize, Clone, Debug)]
+#[cfg_attr(feature = "api", derive(ToSchema))]
 pub struct VictronClustersConfig {
     /// Grid import/export energy and power (essential for HA Energy Dashboard)
     #[serde(default = "victron_cluster_grid_default")]
@@ -245,7 +261,8 @@ fn victron_clusters_default() -> VictronClustersConfig {
     }
 }
 
-#[derive(Deserialize, Serialize, Clone, ToSchema)]
+#[derive(Deserialize, Serialize, Clone)]
+#[cfg_attr(feature = "api", derive(ToSchema))]
 pub struct VictronConfig {
     pub name: String,
     #[serde(default="mqtt_client_name_default")]
@@ -266,7 +283,8 @@ fn victron_broker_port_default() -> u16 { 1883 }
 fn victron_update_interval_default() -> u64 { 10 }
 fn victron_enabled_default() -> bool { true }
 
-#[derive(Deserialize, Serialize, Clone, ToSchema, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "api", derive(ToSchema))]
 pub enum KnxDatapointType {
     ActiveEnergyWh,     // DPT 13.010
     ActiveEnergyKwh,    // DPT 13.013
@@ -287,7 +305,8 @@ fn knx_phase_voltage_type_default() -> KnxDatapointType { KnxDatapointType::Volt
 fn knx_phase_current_type_default() -> KnxDatapointType { KnxDatapointType::CurrentA }
 fn knx_adapter_read_delay_default() -> u64 { 100 }
 
-#[derive(Deserialize, Serialize, Clone, ToSchema)]
+#[derive(Deserialize, Serialize, Clone)]
+#[cfg_attr(feature = "api", derive(ToSchema))]
 pub struct KnxPhaseConfig {
     pub name: String,
     pub voltage_ga: Option<String>,     // Group address for voltage
@@ -313,7 +332,8 @@ fn knx_meter_read_interval_default() -> u64 { 60 }
 fn knx_meter_phases_default() -> Vec<KnxPhaseConfig> { Vec::new() }
 fn knx_meter_calculate_totals_default() -> bool { true }
 
-#[derive(Deserialize, Serialize, Clone, ToSchema)]
+#[derive(Deserialize, Serialize, Clone)]
+#[cfg_attr(feature = "api", derive(ToSchema))]
 pub struct KnxMeterConfig {
     pub name: String,
     #[serde(default="knx_meter_enabled_default")]
@@ -362,7 +382,8 @@ pub struct KnxMeterConfig {
 fn knx_switch_enabled_default() -> bool { true }
 fn knx_switch_expose_to_ha_default() -> bool { true }
 
-#[derive(Deserialize, Serialize, Clone, ToSchema)]
+#[derive(Deserialize, Serialize, Clone)]
+#[cfg_attr(feature = "api", derive(ToSchema))]
 pub struct KnxSwitchConfig {
     pub name: String,
     #[serde(default="knx_switch_enabled_default")]
@@ -384,7 +405,8 @@ fn knx_poll_interval_default() -> u64 { 60 }
 fn knx_poll_enabled_default() -> bool { true }
 
 /// Configuration for a group address to be actively polled
-#[derive(Deserialize, Serialize, Clone, ToSchema)]
+#[derive(Deserialize, Serialize, Clone)]
+#[cfg_attr(feature = "api", derive(ToSchema))]
 pub struct KnxPollGroupConfig {
     /// Group address to poll (e.g., "1/2/3")
     pub group_address: String,
@@ -404,7 +426,8 @@ pub struct KnxPollGroupConfig {
     pub field_name: Option<String>,
 }
 
-#[derive(Deserialize, Serialize, Clone, ToSchema)]
+#[derive(Deserialize, Serialize, Clone)]
+#[cfg_attr(feature = "api", derive(ToSchema))]
 pub struct KnxAdapterConfig {
     pub name: String,
     pub host: String,
@@ -430,7 +453,8 @@ pub struct KnxAdapterConfig {
     pub poll_groups: Vec<KnxPollGroupConfig>,
 }
 
-#[derive(Deserialize, Serialize, Clone, ToSchema)]
+#[derive(Deserialize, Serialize, Clone)]
+#[cfg_attr(feature = "api", derive(ToSchema))]
 pub struct ZennerDatahubConfig {
     pub name: String,
     #[serde(default="mqtt_client_name_default")]
@@ -456,6 +480,7 @@ fn knx_default() -> Vec<KnxAdapterConfig> { return Vec::new(); }
 fn zridh_default() -> Vec<ZennerDatahubConfig> { return Vec::new(); }
 
 #[derive(Deserialize, Serialize, Clone)]
+#[cfg_attr(feature = "api", derive(ToSchema))]
 pub struct Config {
     #[serde(default="httpd_default")]
     pub httpd: HttpdConfig,
@@ -512,7 +537,10 @@ impl ConfigHolder {
 
         // Load config from config/e2m.yaml only
         let file = match File::open("config/e2m.yaml") {
-            Ok(f) => f,
+            Ok(f) => {
+                info!("Config file config/e2m.yaml loaded");
+                f
+            },
             Err(_) => {
                 info!("No config file found at config/e2m.yaml");
                 return (ConfigStatus::Missing, None);
@@ -522,6 +550,7 @@ impl ConfigHolder {
         let mut file = file;
         let mut contents = String::new();
         if let Err(e) = file.read_to_string(&mut contents) {
+            error!("Config could not be read: {}", e);
             return (ConfigStatus::Invalid(format!("Unable to read config file: {}", e)), None);
         }
 
@@ -537,16 +566,23 @@ impl ConfigHolder {
                 }))
             },
             Err(e) => {
+                error!("Config could not be parsed: {}", e);
                 (ConfigStatus::Invalid(format!("Unable to parse config file: {}", e)), None)
             }
         }
     }
 
     pub fn load() -> Self {
-        let (status, holder) = Self::try_load();
+        let (_status, holder) = Self::try_load();
         match holder {
             Some(h) => h,
             None => {
+                if cfg!(feature = "api") {
+                    panic!("Configuration is invalid AND api is disabled, bailing out!")
+                } else {
+                    info!("Loading the config failed, using default config");
+                }
+
                 // Create a default config holder with placeholder MQTT settings
                 // This allows the app to start and show the setup wizard
                 info!("Creating default config holder for setup wizard");

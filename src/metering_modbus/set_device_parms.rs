@@ -3,7 +3,7 @@ use log::{debug, error, info};
 use rmodbus::{ModbusProto, client::ModbusRequest, guess_response_frame_len};
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::TcpStream, time::timeout};
 
-use crate::metering_modbus::{HubConnectionState, ModbusDevice, ModbusError, connect_to_hub_with_retry, registers::ModbusRegisterType};
+use crate::metering_modbus::{HubConnectionState, ModbusDevice, ModbusError, connect_to_hub_with_retry, registers::{ModbusRegisterType, Register}};
 
 pub async fn set(
     socket_addr: &str,
@@ -34,22 +34,22 @@ pub async fn set(
         }
     }
 
-    //debug!("Hub {} Device {} start writing", hub_name, device.config.name);
-
     // Get mutable reference to stream
     let stream = conn_state.stream.as_mut().unwrap();
 
     for (str_addr, value) in registers {
         
-        
-
         let address: u16 = str_addr.parse().unwrap_or(0);
 
         for needle in &device.registers {
+            
             if let super::registers::Register::Modbus(r) = needle {
+                debug!("Searching with register ... {}", r.register);
                 if r.register != address {
                     continue;
                 }
+
+                debug!("Got register to write ... {address}");
 
                 let mut mreq = ModbusRequest::new(device.config.slave_id, proto);
                 let value_u16 = match value.len() {
@@ -81,6 +81,50 @@ pub async fn set(
                 }
 
             }
+        }
+    }
+}
+
+pub async fn write_register(device: &ModbusDevice, proto: ModbusProto,  conn_state: &mut HubConnectionState, register: Register, value: Vec<u8> ) {
+    if let Register::Modbus(r) = register {
+
+        let address = r.register;
+
+        let mut mreq = ModbusRequest::new(device.config.slave_id, proto);
+        let value_u16 = match value.len() {
+            1 => value[0] as u16,
+            2 => u16::from_be_bytes([value[0], value[1]]),
+            _ => {
+                error!("Wrong number of bytes to write");
+                return;
+            }
+        };
+
+        let mut request = Vec::new();
+
+        if let Err(e) = match r.input_type {
+            ModbusRegisterType::Holding => mreq.generate_set_holding(address, value_u16, &mut request),
+            ModbusRegisterType::Coil => mreq.generate_set_coil(address, value[0], &mut request),
+            ModbusRegisterType::Input => {
+                error!("Trying to set input register on device {} address {address}", device.config.name);
+                return;
+            }
+        } {
+            error!("Can not build request for {address} on {}: {e:?}", device.config.name);
+            return;
+        }
+
+        if conn_state.stream.is_none() {
+            error!("Write before connection");
+            return;
+        }
+        
+        /* Get our stream to write to */
+        let stream = conn_state.stream.as_mut().unwrap();
+
+        match write_single_register(stream, request, proto).await {
+            Ok(_) => info!("Written register {} on Device {}", address, device.config.name),
+            Err(e) => error!("Writing register {} on Device {} failed: {e:?}", address, device.config.name),
         }
     }
 }

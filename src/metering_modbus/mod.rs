@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime};
-use crate::CALLBACKS;
 use crate::mqtt::{PublishData, SubscribeData};
 use crate::{config::{ConfigBases, ConfigChange, ConfigOperation, ModbusConfig, ModbusDeviceConfig, ModbusHubConfig, ModbusProtoConfig}, metering_modbus::registers::Register, models::DeviceProtocol, mqtt::{home_assistant::{HaSensor, HaComponent2}, Transmission, publish_protocol_count}, task_monitor::TaskMonitor, MeteringData, CONFIG};
 use evalexpr::{ContextWithMutableVariables, DefaultNumericTypes, HashMapContext};
@@ -10,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::TcpStream, sync::mpsc::Sender, time::timeout};
 pub mod registers;
 pub mod set_device_parms;
+pub mod ha_config;
 
 /// Errors that can occur during Modbus communication
 #[derive(Debug)]
@@ -85,7 +85,8 @@ pub struct ModbusDevice {
     config: ModbusDeviceConfig,
     waits_till_read: u32,
     cur_waits: u32,
-    registers: Vec<registers::Register>
+    registers: Vec<registers::Register>,
+    device_class: String,
 }
 
 #[derive(Deserialize)]
@@ -144,6 +145,8 @@ impl ModbusManger
                 device_count += config_hub.devices.len() as u32;
 
                 let hub_sender = self.sender.clone();
+                /* Sender and Receiver for our Callbacks */
+                let (sender, mut write_receiver) = tokio::sync::mpsc::channel(10);
                 let mut hub = ModbusHub {
                     config: config_hub.clone(),
                     devices: {
@@ -156,6 +159,7 @@ impl ModbusManger
                                 waits_till_read: 1,
                                 cur_waits: 0,
                                 registers: regs,
+                                device_class: "sensor".to_string(),
                             };
                             devs.push(d);
 
@@ -167,49 +171,15 @@ impl ModbusManger
                                 Some(model)
                             );
 
+                            let _ = hub_sender.send(Transmission::Subscribe(SubscribeData {
+                                                            topic: format!("energy2mqtt/set/modbus/{}/{}", &config_hub.name, &dev.name),
+                                                            sender: sender.clone() })).await;
+
+                            /* Add everything to home assistant if needed */
                             for reg in r {
-                                let (platform, name, device_class, unit_of_measurement, state_class) = match reg {
-                                    registers::Register::Template(register) => (
-                                        register.platform,
-                                        register.name,
-                                        register.device_class,
-                                        register.unit_of_measurement,
-                                        register.state_class,
-                                    ),
-                                    registers::Register::Modbus(register) => (
-                                        register.platform,
-                                        register.name,
-                                        register.device_class,
-                                        register.unit_of_measurement,
-                                        register.state_class,
-                                    ),
-                                };
-
-                                // Build component using the new HaComponent2 builder
-                                let mut cmp = HaComponent2::new()
-                                    .name(name.clone())
-                                    .platform(platform.to_string());
-
-                                // Only add device_class if it's not NONE
-                                if !device_class.is_empty() && device_class != "NONE" {
-                                    cmp = cmp.device_class(device_class);
-                                }
-
-                                // Only add unit_of_measurement if it's not NONE
-                                if !unit_of_measurement.is_empty() && unit_of_measurement != "NONE" {
-                                    cmp = cmp.unit_of_measurement(unit_of_measurement);
-                                }
-
-                                // Only add state_class if it's not NONE
-                                if !state_class.is_empty() && state_class != "NONE" {
-                                    cmp = cmp.state_class(state_class);
-                                } else {
-                                    // Remove default state_class if it shouldn't be set
-                                    cmp = cmp.non_numeric();
-                                }
-
-                                discover.add_cmp(name.clone(), cmp);
+                                let _ = ha_config::get_cmp_from_reg(reg.clone(), &mut discover, &sender, &hub_sender, &config_hub.name, &dev.name).await;
                             }
+
                             let _ = hub_sender.send(Transmission::AutoDiscovery2(discover)).await;
                         }
                         devs
@@ -237,13 +207,6 @@ impl ModbusManger
                     }
                 }
 
-                /* Register our callbacks */
-                let (sender, mut write_receiver) = tokio::sync::mpsc::channel(10);
-                for device in hub.devices.iter() {
-                    let _ = hub_sender.send(Transmission::Subscribe(SubscribeData {
-                                                                topic: format!("energy2mqtt/set/modbus/{}",device.config.name),
-                                                                sender: sender.clone() })).await;
-                }
 
                 let hub_name_for_task = config_hub.name.clone();
                 self.task_monitor.spawn(
@@ -285,30 +248,109 @@ impl ModbusManger
                                 },
                                 /* We got a write command, we may miss a beat but that is ok */
                                 Some((topic, payload)) = write_receiver.recv() => {
-                                    /* Check which device we need to call out to */
-                                    let command: ModbusMqttCommand = match serde_json::from_slice(payload.as_bytes()) {
-                                        Ok(d) => d,
-                                        Err(e) => {
-                                            error!("Malformed JSON received: {:?} -> {}", e, payload);
-                                            continue;
-                                        }
-                                    };
+                                    if topic.starts_with("energy2mqtt/set/modbus") {
+                                        /* Check which device we need to call out to */
+                                        let command: ModbusMqttCommand = match serde_json::from_slice(payload.as_bytes()) {
+                                            Ok(d) => d,
+                                            Err(e) => {
+                                                error!("Malformed JSON received: {:?} -> {}", e, payload);
+                                                continue;
+                                            }
+                                        };
 
-                                    if command.function != "modbus_set" {
-                                        error!("Function {} is unknown for {}", command.function, topic);
-                                        continue;
-                                    }
-
-                                    /* Find the device to use */
-                                    for device in hub.devices.iter() {
-                                        if device.config.name != command.device {
+                                        if command.function != "modbus_set" {
+                                            error!("Function {} is unknown for {}", command.function, topic);
                                             continue;
                                         }
 
-                                        /* We found our device */
-                                        set_device_parms::set(&socket_addr, &hub.config.name, &command.registers, device, proto, &mut conn_state).await;
-                                    }
+                                        /* Find the device to use */
+                                        for device in hub.devices.iter() {
+                                            if device.config.name != command.device {
+                                                debug!("{} != {}", device.config.name, command.device);
+                                                continue;
+                                            }
 
+                                            /* We found our device */
+                                            set_device_parms::set(&socket_addr, &hub.config.name, &command.registers, device, proto, &mut conn_state).await;
+                                        }
+
+                                    } else if topic.starts_with("energy2mqtt/cmds/modbus") {
+                                        //"energy2mqtt/cmds/modbus/{}/{}/{}"
+                                        /* Get the correct device to run */
+                                        let (topic, register) = topic.rsplit_once('/').unwrap();
+                                        let (_, name) = topic.rsplit_once('/').unwrap();
+
+                                        for device in hub.devices.iter() {
+                                            if device.config.name == name {
+                                                for reg in &device.registers {
+                                                    if let Register::Modbus(r) = &reg {
+                                                        
+                                                        if r.name != register {
+                                                            continue;
+                                                        }
+
+                                                        let value: Vec<u8> = match r.format {
+                                                            registers::ModbusRegisterFormat::Int16 => {
+                                                                let d: Result<i16, _> = payload.parse();
+                                                                if d.is_err() {
+                                                                    error!("Can not parse register {} to {payload}", r.register);
+                                                                    break;
+                                                                }
+
+                                                                d.unwrap().to_be_bytes().to_vec()
+                                                            },
+                                                            registers::ModbusRegisterFormat::UInt16 => {
+                                                                let d: Result<u16, _> = payload.parse();
+                                                                if d.is_err() {
+                                                                    error!("Can not parse register {} to {payload}", r.register);
+                                                                    break;
+                                                                }
+
+                                                                d.unwrap().to_be_bytes().to_vec() 
+                                                            },
+                                                            registers::ModbusRegisterFormat::Int32 => {
+                                                                let d: Result<i32, _> = payload.parse();
+                                                                if d.is_err() {
+                                                                    error!("Can not parse register {} to {payload}", r.register);
+                                                                    break;
+                                                                }
+
+                                                                d.unwrap().to_be_bytes().to_vec() 
+                                                            },
+                                                            registers::ModbusRegisterFormat::UInt32 => {
+                                                                let d: Result<u32, _> = payload.parse();
+                                                                if d.is_err() {
+                                                                    error!("Can not parse register {} to {payload}", r.register);
+                                                                    break;
+                                                                }
+
+                                                                d.unwrap().to_be_bytes().to_vec() 
+                                                            },
+                                                            registers::ModbusRegisterFormat::Coil => {
+                                                                let d: Result<u8, _> = payload.parse();
+                                                                if d.is_err() {
+                                                                    error!("Can not parse register {} to {payload}", r.register);
+                                                                    break;
+                                                                }
+
+                                                                d.unwrap().to_be_bytes().to_vec()
+                                                            }
+                                                            _ => {
+                                                                error!("Unable to set f32, SunSSF or String");
+                                                                break;
+                                                            }
+                                                        };
+
+                                                        info!("WRITING {} -> {} -> {:?}", r.register, payload, value);
+
+                                                        /* Write our register */
+                                                        set_device_parms::write_register(device, proto, &mut conn_state, reg.clone(), value).await;
+                                                    }
+                                                }
+                                                break;
+                                            }
+                                        }
+                                    }
                                 }
 
                             }
@@ -637,6 +679,20 @@ async fn read_device_registers(
         raw_data.registers.push( E2MRegister { address: reg.register as i32, data: response.clone() });
 
         match reg.format {
+            registers::ModbusRegisterFormat::Coil => {
+                let mut data = Vec::new();
+                match mreq.parse_bool(&response, &mut data) {
+                    Ok(()) => {
+                        parsed_value = Ok(match data[0] { 
+                            true => 1,
+                            false => 0
+                        } as f64);
+                    }
+                    Err(e) => {
+                        parsed_value = Err(format!("{:?}", e));
+                    },
+                }
+            }
             registers::ModbusRegisterFormat::Int32 => {
                 let mut data = Vec::new();
                 match mreq.parse_i16(&response, &mut data) {

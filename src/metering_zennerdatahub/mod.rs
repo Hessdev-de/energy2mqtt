@@ -1,5 +1,4 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
-
 use base64::Engine;
 use log::{debug, error, info};
 use rumqttc::{AsyncClient, Event, MqttOptions, Packet};
