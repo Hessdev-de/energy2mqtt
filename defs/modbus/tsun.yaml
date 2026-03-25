@@ -7,7 +7,7 @@ registers:
     register: 5040
     length: 1
     format: UInt16
-    scaler: 1.0
+    platform: number
     description: "Operational Mode"
     mapping:
       - "0.0": "Standby"
@@ -23,7 +23,7 @@ registers:
     register: 5041
     length: 1
     format: UInt16
-    scaler: 1.0
+    platform: number
     description: "Dispatching Mode"
     mapping:
       - "0.0": "Numeric"
@@ -34,7 +34,7 @@ registers:
     register: 5042
     length: 1
     format: Int16
-    scaler: 1.0
+    platform: number
     description: "Power"
     device_class: "number"
     state_class: "power"
@@ -45,7 +45,7 @@ registers:
     register: 5047
     length: 1
     format: Int16
-    scaler: 1.0
+    platform: number
     description: "Meter type selected"
     mapping:
       - "0.0": "None"
@@ -62,6 +62,7 @@ registers:
     length: 1
     format: UInt16
     scaler: 1.0
+    platform: number
     description: "System operation mode"
     mapping:
       - "0.0": "Shutdown"
