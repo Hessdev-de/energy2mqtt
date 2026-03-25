@@ -3,7 +3,7 @@ use log::{debug, error, info};
 use rmodbus::{ModbusProto, client::ModbusRequest, guess_response_frame_len};
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::TcpStream, time::timeout};
 
-use crate::metering_modbus::{HubConnectionState, ModbusDevice, ModbusError, connect_to_hub_with_retry, registers::{ModbusRegisterType, Register}};
+use crate::metering_modbus::{HubConnectionState, ModbusDevice, ModbusError, read_device_parms, registers::{ModbusRegisterType, Register}};
 
 pub async fn set(
     socket_addr: &str,
@@ -16,7 +16,7 @@ pub async fn set(
 ){
     // Ensure we have a connection (reuse existing or establish new)
     if conn_state.stream.is_none() {
-        match connect_to_hub_with_retry(
+        match read_device_parms::connect_to_hub_with_retry(
             socket_addr,
             hub_name,
             conn_state.connection_timeout

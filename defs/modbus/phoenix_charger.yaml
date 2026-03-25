@@ -6,12 +6,12 @@ registers:
     register: 100
     length: 1
     format: UInt16
-    device_class: sensor
 
   - name: allow_loading
     input_type: Coil
     register: 400
     length: 1
     format: Coil
-    device_class: switch
+    platform: switch
     command_template: "{% if value == \"ON\" %}1{% else %}0{% endif %}"
+    value_template: "{% if ## == 1 %}ON{% else %}OFF{% endif %}"

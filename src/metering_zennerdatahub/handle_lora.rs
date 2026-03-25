@@ -3,7 +3,7 @@ use log::{debug, error, info};
 use rumqttc::AsyncClient;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio::{fs, sync::Mutex, time};
+use tokio::{sync::Mutex, time};
 use walkdir::WalkDir;
 use lazy_static::lazy_static;
 
@@ -201,7 +201,7 @@ pub async fn find_defintion(dev_eui: &String, known_devices: &mut HashMap<String
         /* Parse this defition file */
         let file_name = entry.path().to_str().unwrap_or("/nonexisting/dir");
         debug!("Loading {file_name}");
-        let fs = fs::read_to_string(&file_name).await.unwrap_or("".to_string());
+        let fs = std::fs::read_to_string(&file_name).unwrap_or("".to_string());
 
         let mut mapping: LoRaWANDef = match serde_yml::from_str(&fs) {
             Ok(d) => d,
@@ -213,10 +213,8 @@ pub async fn find_defintion(dev_eui: &String, known_devices: &mut HashMap<String
 
         /* Check if we have a command handler and if so add it */
         let command = file_name.replace(".yaml", ".command");
-        if let Ok(b) = fs::try_exists(&command).await {
-            if b == true {
-                mapping.e2m_command_handler = Some(command);
-            }
+        if std::fs::exists(&command).unwrap_or(false) {
+            mapping.e2m_command_handler = Some(command);
         }
 
         for alias in &mapping.aliases {

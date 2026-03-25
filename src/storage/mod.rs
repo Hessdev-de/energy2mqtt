@@ -24,7 +24,7 @@ impl StoredData {
     pub async fn load(proto: String, id: &String) -> Self {
         let filename = generate_filename(&proto, id);
 
-        let map = match tokio::fs::read_to_string(&filename).await {
+        let map = match std::fs::read_to_string(&filename) {
             Ok(d) => {
                 serde_json::from_str(&d).unwrap_or(HashMap::new())
             }

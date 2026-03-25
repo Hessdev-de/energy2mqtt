@@ -1,20 +1,21 @@
 
 use serde_json::Value;
 use tokio::sync::mpsc::Sender;
-use crate::{metering_modbus::registers::{self, Register}, mqtt::{PublishData, SubscribeData, Transmission, home_assistant::{HaComponent2, HaSensor}}};
+use crate::{metering_modbus::registers::{self, Register}, mqtt::{SubscribeData, Transmission, home_assistant::{HaComponent2, HaSensor}}};
 
 pub async fn get_cmp_from_reg(reg: Register, discover: &mut HaSensor,
                         sender: &Sender<(String, String)>, hub_sender: &Sender<Transmission>,
                         hub_name: &String, device_name: &String) {
 
     let (platform, name, device_class,
-        unit_of_measurement, state_class) = match reg.clone() {
+        unit_of_measurement, state_class, value_template) = match reg.clone() {
         registers::Register::Template(register) => (
                 register.platform,
                 register.name,
                 register.device_class,
                 register.unit_of_measurement,
                 register.state_class,
+                register.value_template,
             ),
         registers::Register::Modbus(register) => (
                 register.platform,
@@ -22,13 +23,14 @@ pub async fn get_cmp_from_reg(reg: Register, discover: &mut HaSensor,
                 register.device_class,
                 register.unit_of_measurement,
                 register.state_class,
+                register.value_template,
             ),
     };
 
     // Build component using the new HaComponent2 builder
     let mut cmp = HaComponent2::new()
         .name(name.clone())
-        .platform(platform.to_string());
+        .platform(platform);
 
     // Only add device_class if it's not NONE
     if !device_class.is_empty() && device_class != "NONE" {
@@ -49,6 +51,10 @@ pub async fn get_cmp_from_reg(reg: Register, discover: &mut HaSensor,
         cmp = cmp.non_numeric();
     }
 
+    if !value_template.is_empty() {
+        cmp = cmp.add_information("value_template", value_template.into());
+    }
+
     /* Some functions are only available to "real" registers */
     if let registers::Register::Modbus(r) = reg {
 
@@ -58,7 +64,7 @@ pub async fn get_cmp_from_reg(reg: Register, discover: &mut HaSensor,
 
             let topic= format!("energy2mqtt/cmds/modbus/{}/{}/{}", hub_name, device_name, name);
 
-            match r.device_class.as_str() {
+            match r.platform.as_str() {
                 "number" | "switch" => {
                     cmp = cmp.add_information("command_topic", Value::from(topic.clone()));
                     if !r.command_template.is_empty() {
@@ -69,11 +75,7 @@ pub async fn get_cmp_from_reg(reg: Register, discover: &mut HaSensor,
             }
 
             let _ = hub_sender.send(Transmission::Subscribe(SubscribeData { topic, sender: sender.clone() })).await;
-
-            /* Make sure to register the correct values */
         }
-
-
     }
 
     /* Add our device */

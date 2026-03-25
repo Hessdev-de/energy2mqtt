@@ -6,15 +6,17 @@ authors = ["Sebastian Heß <e2m@hessdev.de>"]
 description = "Export your energy data to MQTT"
 
 [features]
-knx = [ "dep:knx-rust", "dep:thiserror" ]
-iec62056 = [ "dep:thiserror" ]
-victron = [ ]
-oms = [ "dep:thiserror", "dep:aes", "dep:cbc", "dep:crc16", "dep:hex" ]
-sml = [ "dep:hex" ]
-zenner-datahub = [ "dep:base64" ]
-modbus = [ "dep:rmodbus", "dep:evalexpr" ]
 api = [ "dep:thiserror", "dep:actix-web", "dep:actix-files", "dep:actix-ws", "dep:utoipa", "dep:utoipa-swagger-ui" ]
-default = [ "modbus" ]
+iec62056 = [ "dep:thiserror" ]
+knx = [ "dep:knx-rust", "dep:thiserror" ]
+modbus = [ "dep:rmodbus", "dep:evalexpr" ]
+sml = [ "dep:hex" ]
+oms = [ "dep:thiserror", "dep:aes", "dep:cbc", "dep:crc16", "dep:hex" ]
+victron = [ ]
+zenner-datahub = [ "dep:base64", "tokio/process" ]
+
+
+default = [ "api", "iec62056", "knx", "modbus", "sml", "oms", "victron", "zenner-datahub" ]
 
 [dependencies]
 serde = { version = "1.0.228", features = ["derive"] }
@@ -24,7 +26,7 @@ rumqttc = "0.25.1"
 
 uuid = { version = "1.20.0", features = ["v4", "serde"] }
 chrono = { version = "0.4.43", features = [ "serde" ] }
-tokio = { version = "1.49.0", features = ["full"] }
+tokio = { version = "1.49.0", features = [ "sync", "rt-multi-thread", "macros" ] }
 log = "0.4.29"
 env_logger = "0.11.8"
 futures-util = "0.3.31"

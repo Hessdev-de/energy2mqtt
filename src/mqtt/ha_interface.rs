@@ -31,6 +31,7 @@ pub enum HAPlatform {
     BinarySensor,
     Button,
     Number,
+    Switch,
 }
 
 impl HAPlatform {
@@ -39,7 +40,8 @@ impl HAPlatform {
             HAPlatform::Sensor => "sensor",
             HAPlatform::BinarySensor => "binary_sensor",
             HAPlatform::Button => "button",
-            HAPlatform::Number => "number"
+            HAPlatform::Number => "number",
+            HAPlatform::Switch => "switch",
         }.to_string()
     }
 }
