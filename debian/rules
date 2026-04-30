@@ -19,9 +19,10 @@ install: build
 	mkdir -p `pwd`/debian/energy2mqtt/usr/bin/
 	cp target/release/energy2mqtt `pwd`/debian/energy2mqtt/usr/bin/
 	# Copy our other stuff
-	mkdir -p `pwd`/debian/energy2mqtt/usr/share/energy2mqtt/{defs,ui}
-	cp -r ui `pwd`/debian/energy2mqtt/usr/share/energy2mqtt/ui
-	cp -r defs `pwd`/debian/energy2mqtt/usr/share/energy2mqtt/defs
+	mkdir -p `pwd`/debian/energy2mqtt/usr/share/energy2mqtt/ui
+	cp -r ui/* `pwd`/debian/energy2mqtt/usr/share/energy2mqtt/ui
+	mkdir -p `pwd`/debian/energy2mqtt/usr/share/energy2mqtt/defs
+	cp -r defs/* `pwd`/debian/energy2mqtt/usr/share/energy2mqtt/defs
 
 binary-arch: build install
 	dh_testdir
