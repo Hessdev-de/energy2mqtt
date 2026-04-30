@@ -33,6 +33,7 @@ registers:
     input_type: Holding
     register: 5042
     length: 1
+    scaler: -1.0
     format: Int16
     platform: number
     description: "Power"
