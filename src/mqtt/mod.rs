@@ -170,15 +170,18 @@ impl Callbacks {
         self.calls.insert(topic, callback);
     }
 
-    pub async fn send(&self, topic: String, payload: String) {
+    pub async fn send(&mut self, topic: String, payload: String) {
         if !self.calls.contains_key(&topic) {
             debug!("Send for unkonwn topic {topic}");
             return;
         }
 
         let call = self.calls.get(&topic).unwrap();
-        debug!("Sending to callback: {payload}");
-        let _ = call.send((topic.clone(), payload.clone())).await.unwrap();
+        if call.send((topic.clone(), payload.clone())).await.is_err() {
+            /* Call failed, we need will delete it from our list */
+            error!("Callback for {topic} failed! Removing it ...");
+            self.calls.remove(&topic);
+        }
     }
 
     pub async fn get_topics(&self) -> Vec<String> {
@@ -331,8 +334,7 @@ impl MqttManager {
                         let live_event = LiveEvent::incoming(topic.clone(), payload_json);
                         let _ = LIVE_EVENTS.send(live_event);
 
-                        let callback = CALLBACKS.write().await;
-                        callback.send(topic.clone(), payload.clone()).await;
+                        CALLBACKS.write().await.send(topic.clone(), payload.clone()).await;
                     },
                     Ok(Event::Incoming(Packet::ConnAck(_))) => {
                         info!("MQTT Connected, resubscribing everything");
