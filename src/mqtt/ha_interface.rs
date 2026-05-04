@@ -30,15 +30,19 @@ pub enum HAPlatform {
     Sensor,
     BinarySensor,
     Button,
+    Number,
+    Switch,
 }
 
 impl HAPlatform {
     pub fn to_string(&self) -> String {
         match self {
-            HAPlatform::Sensor => "sensor".to_string(),
-            HAPlatform::BinarySensor => "binary_sensor".to_string(),
-            HAPlatform::Button => "button".to_string(),
-        }
+            HAPlatform::Sensor => "sensor",
+            HAPlatform::BinarySensor => "binary_sensor",
+            HAPlatform::Button => "button",
+            HAPlatform::Number => "number",
+            HAPlatform::Switch => "switch",
+        }.to_string()
     }
 }
 
