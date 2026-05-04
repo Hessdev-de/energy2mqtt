@@ -1,10 +1,29 @@
-use energy2mqtt::{ApiManager, CONFIG, DeviceManager, Iec62056Manager, KnxManager, ModbusManger, OmsManager, SmlManager, VictronManager, ZennerDatahubManager, init_discovered_devices, get_discovered_devices, mqtt::{MqttManager, internal_commands::CommandHandler, publish_uptime}};
+
+
+use energy2mqtt::{CONFIG, DeviceManager, init_discovered_devices, get_discovered_devices, mqtt::{MqttManager, internal_commands::CommandHandler, publish_uptime}};
 use tokio::task::JoinHandle;
 use std::{env, path::PathBuf, time::Duration};
 use log::info;
 
+#[cfg(feature = "api")]
+use energy2mqtt::ApiManager;
+#[cfg(feature = "oms")]
+use energy2mqtt::OmsManager;
+#[cfg(feature = "iec62056")]
+use energy2mqtt::Iec62056Manager;
+#[cfg(feature = "sml")]
+use energy2mqtt::SmlManager;
+#[cfg(feature = "victron")]
+use energy2mqtt::VictronManager;
+#[cfg(feature = "zenner-datahub")]
+use energy2mqtt::ZennerDatahubManager;
+#[cfg(feature = "knx")]
+use energy2mqtt::KnxManager;
+#[cfg(feature = "modbus")]
+use energy2mqtt::ModbusManger;
 
-#[actix_web::main]
+
+#[tokio::main]
 async fn main() -> std::io::Result<()> {
     // Initialize logging
     let default_filter =  std::env::var("E2M_LOG_LEVEL").unwrap_or("info".to_string());
@@ -14,7 +33,7 @@ async fn main() -> std::io::Result<()> {
 
     // Initialize discovered devices store
     let discovered_devices_path = {
-        let config = CONFIG.read().unwrap();
+        let config =  CONFIG.read().unwrap();
         let base_path = &config.base_path;
         PathBuf::from(base_path).join(&config.config.storage.discovered_devices_path)
     };
@@ -42,61 +61,80 @@ async fn main() -> std::io::Result<()> {
     }));
 
     // Start OMS manager
-    let mr_sender = device_manager.get_sender_instance();
-    let mut oms = OmsManager::new(mr_sender);
-    threads.push(tokio::spawn(async move {
-        oms.start_thread().await;
-    }));
+    #[cfg(feature = "oms")]
+    {
+        let mr_sender = device_manager.get_sender_instance();
+        let mut oms = OmsManager::new(mr_sender);
+        threads.push(tokio::spawn(async move {
+            oms.start_thread().await;
+        }));
+    }
 
     // Start IEC 62056-21 manager
-    let mr_sender = device_manager.get_sender_instance();
-    let mut iec62056 = Iec62056Manager::new(mr_sender);
-    threads.push(tokio::spawn(async move {
-        iec62056.start_thread().await;
-    }));
-
+    #[cfg(feature = "iec62056")]
+    {
+        let mr_sender = device_manager.get_sender_instance();
+        let mut iec62056 = Iec62056Manager::new(mr_sender);
+        threads.push(tokio::spawn(async move {
+            iec62056.start_thread().await;
+        }));
+    }
     // Start SML manager
-    let mr_sender = device_manager.get_sender_instance();
-    let mut sml = SmlManager::new(mr_sender);
-    threads.push(tokio::spawn(async move {
-        sml.start_thread().await;
-    }));
+    #[cfg(feature = "sml")]
+    {
+        let mr_sender = device_manager.get_sender_instance();
+        let mut sml = SmlManager::new(mr_sender);
+        threads.push(tokio::spawn(async move {
+            sml.start_thread().await;
+        }));
+    }
 
-    // Start Victron managers for each configured instance
-    let victron_configs = {
-        let config = CONFIG.read().unwrap();
-        config.config.victron.clone()
-    };
-    
-    for victron_config in victron_configs {
-        if victron_config.enabled {
-            let mr_sender = device_manager.get_sender_instance();
-            let mut victron = VictronManager::new(mr_sender);
-            threads.push(tokio::spawn(async move {
-                victron.start_thread().await;
-            }));
+    #[cfg(feature = "victron")]
+    {
+        // Start Victron managers for each configured instance
+        let victron_configs = {
+            let config = CONFIG.read().unwrap();
+            config.config.victron.clone()
+        };
+        
+        for victron_config in victron_configs {
+            if victron_config.enabled {
+                let mr_sender = device_manager.get_sender_instance();
+                let mut victron = VictronManager::new(mr_sender);
+                threads.push(tokio::spawn(async move {
+                    victron.start_thread().await;
+                }));
+            }
         }
     }
 
-    // Start manager for ZENNER datahub
-    let mr_sender = device_manager.get_sender_instance();
-    let mut zridh = ZennerDatahubManager::new(mr_sender);
-    threads.push(tokio::spawn(async move {
-        zridh.start_thread().await;
-    }));
+    #[cfg(feature = "zenner-datahub")]
+    {
+        // Start manager for ZENNER datahub
+        let mr_sender = device_manager.get_sender_instance();
+        let mut zridh = ZennerDatahubManager::new(mr_sender);
+        threads.push(tokio::spawn(async move {
+            zridh.start_thread().await;
+        }));
+    }
 
-    // Start KNX manager
-    let mr_sender = device_manager.get_sender_instance();
-    let mut knx = KnxManager::new(mr_sender);
-    threads.push(tokio::spawn(async move {
-        knx.start_thread().await;
-    }));
+    #[cfg(feature = "knx")]
+    {
+        // Start KNX manager if features is enabled
+        let mr_sender = device_manager.get_sender_instance();
+        let mut knx = KnxManager::new(mr_sender);
+        threads.push(tokio::spawn(async move {
+            knx.start_thread().await;
+        }));
+    }
 
-    /* Run our api gateway now */
-    let api = ApiManager::new();
-    threads.push(tokio::spawn(async move {
-        let _ = api.start_thread().await;
-    }));
+    #[cfg(feature = "api")] {
+        /* Run our api gateway now */
+        let api = ApiManager::new();
+        threads.push(tokio::spawn(async move {
+            let _ = api.start_thread().await;
+        }));
+    }
 
     /* Make sure to handle the dirty flag of the configuration and discovered devices */
     threads.push(tokio::spawn(async move {
