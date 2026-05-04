@@ -578,9 +578,9 @@ impl ConfigHolder {
             Some(h) => h,
             None => {
                 if cfg!(feature = "api") {
-                    panic!("Configuration is invalid AND api is disabled, bailing out!")
-                } else {
                     info!("Loading the config failed, using default config");
+                } else {
+                    panic!("Configuration is invalid AND api is disabled, bailing out!")
                 }
 
                 // Create a default config holder with placeholder MQTT settings
