@@ -4,8 +4,6 @@ use log::{error, info};
 use serde::Deserialize;
 use serde_yml;
 
-use crate::mqtt::ha_interface::HAPlatform;
-
 #[derive(Clone, PartialEq, Deserialize)]
 pub enum ModbusRegisterType {
     Holding,
@@ -22,6 +20,7 @@ pub enum ModbusRegisterFormat {
     String,
     /// SunSpec scale factor - int16 used as power of 10 exponent
     SunSSF,
+    Coil,
 }
 
 #[derive(Clone, PartialEq, Deserialize)]
@@ -35,6 +34,9 @@ fn default_scaler() -> f32 {
 }
 fn default_none_str() -> String {
     "NONE".to_string()
+}
+fn default_platform() -> String {
+    "sensor".to_string()
 }
 
 #[derive(Clone, PartialEq, Deserialize)]
@@ -56,10 +58,14 @@ pub struct ModbusRegister {
     pub device_class: String,
     #[serde(default="default_none_str")]
     pub state_class: String,
-    #[serde(default)]
-    pub platform: HAPlatform,
+    #[serde(default="default_platform")]
+    pub platform: String,
     #[serde(default)]
     pub mappings: Vec<Mapping>,
+    #[serde(default)]
+    pub command_template: String,
+    #[serde(default)]
+    pub value_template: String,
 }
 
 #[derive(Deserialize, Clone)]
@@ -69,8 +75,10 @@ pub struct TemplateRegister {
     pub unit_of_measurement: String,
     pub device_class: String,
     pub state_class: String,
+    #[serde(default="default_platform")]
+    pub platform: String,
     #[serde(default)]
-    pub platform: HAPlatform,
+    pub value_template: String,
 }
 
 #[derive(Clone)]
