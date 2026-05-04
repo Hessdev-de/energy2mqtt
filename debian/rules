@@ -7,7 +7,9 @@ clean:
 
 build:
 	dh_testdir
-	cargo build --release
+	# Users buildsystem may set features to build, we need to honor that
+	[ ! -s BUILD_FEATURES ] || cargo build --release --no-default-features --features=$$(cat BUILD_FEATURES)
+	[ -s BUILD_FEATURES ] || cargo build --release
 
 install: build
 	dh_testdir
@@ -17,9 +19,10 @@ install: build
 	mkdir -p `pwd`/debian/energy2mqtt/usr/bin/
 	cp target/release/energy2mqtt `pwd`/debian/energy2mqtt/usr/bin/
 	# Copy our other stuff
-	mkdir -p `pwd`/debian/energy2mqtt/usr/share/energy2mqtt/{defs, ui}
-	cp -r ui `pwd`/debian/energy2mqtt/usr/share/energy2mqtt/ui
-	cp -r defs `pwd`/debian/energy2mqtt/usr/share/energy2mqtt/defs
+	mkdir -p `pwd`/debian/energy2mqtt/usr/share/energy2mqtt/ui
+	cp -r ui/* `pwd`/debian/energy2mqtt/usr/share/energy2mqtt/ui
+	mkdir -p `pwd`/debian/energy2mqtt/usr/share/energy2mqtt/defs
+	cp -r defs/* `pwd`/debian/energy2mqtt/usr/share/energy2mqtt/defs
 
 binary-arch: build install
 	dh_testdir
