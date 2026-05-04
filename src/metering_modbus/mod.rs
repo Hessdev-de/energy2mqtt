@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::time::Duration;
+use crate::metering_modbus::registers::ModbusRegister;
 use crate::mqtt::SubscribeData;
 use crate::{config::{ConfigBases, ConfigChange, ConfigOperation, ModbusConfig, ModbusDeviceConfig, ModbusHubConfig, ModbusProtoConfig}, metering_modbus::registers::Register, models::DeviceProtocol, mqtt::{home_assistant::HaSensor, Transmission, publish_protocol_count}, task_monitor::TaskMonitor, CONFIG};
 use log::{debug, error, info, warn};
@@ -87,14 +88,15 @@ pub struct ModbusDevice {
     waits_till_read: u32,
     cur_waits: u32,
     registers: Vec<registers::Register>,
-    device_class: String,
 }
 
 #[derive(Deserialize)]
 struct ModbusMqttCommand {
     function: String,
     device: String,
-    registers: HashMap<String, Vec<u8>>
+    /* set_modbus uses those */
+    registers: Option<HashMap<String, Vec<u8>>>,
+    changes: Option<Vec<ModbusRegister>>,
 }
 
 #[derive(Clone)]
@@ -160,7 +162,6 @@ impl ModbusManger
                                 waits_till_read: 1,
                                 cur_waits: 0,
                                 registers: regs,
-                                device_class: "sensor".to_string(),
                             };
                             devs.push(d);
 
@@ -174,12 +175,14 @@ impl ModbusManger
 
                             /* Subscribe to our set topic for RAW transmission of data to registers */
                             let _ = hub_sender.send(Transmission::Subscribe(SubscribeData {
-                                                            topic: format!("energy2mqtt/set/modbus/{}/{}", &config_hub.name, &dev.name),
+                                                            topic: format!("energy2mqtt/set/modbus/{}/{}",
+                                                            &config_hub.name, &dev.name),
                                                             sender: sender.clone() })).await;
 
                             /* Add everything to home assistant if needed */
                             for reg in r {
-                                let _ = ha_config::get_cmp_from_reg(reg.clone(), &mut discover, &sender, &hub_sender, &config_hub.name, &dev.name).await;
+                                let _ = ha_config::get_cmp_from_reg(reg.clone(), &mut discover, &sender,
+                                                    &hub_sender, &config_hub.name, &dev.name).await;
                             }
 
                             let _ = hub_sender.send(Transmission::AutoDiscovery2(discover)).await;
@@ -248,24 +251,33 @@ impl ModbusManger
                                             }
                                         };
 
-                                        if command.function != "modbus_set" {
-                                            error!("Function {} is unknown for {}", command.function, topic);
-                                            continue;
-                                        }
-
                                         /* Find the device to use */
-                                        for device in hub.devices.iter_mut() {
+                                        for mut device in hub.devices.iter_mut() {
                                             if device.config.name != command.device {
-                                                debug!("{} != {}", device.config.name, command.device);
-                                                continue;
+                                                    continue;
                                             }
 
-                                            /* We found our device */
-                                            set_device_parms::set(&socket_addr, &hub.config.name, &command.registers, device, proto, &mut conn_state).await;
-                                            debug!("Hub {} Device {} will now be read because the configuration changed", hub.config.name, device.config.name);
-                                            device.cur_waits = device.waits_till_read + 10;
+                                            match command.function.as_str() {
+                                                "modbus_set" => {
+                                                    if let Some(registers) = &command.registers {
+                                                        /* We found our device */
+                                                        set_device_parms::set(&socket_addr, &hub.config.name, registers,
+                                                                                device, proto, &mut conn_state).await;
+                                                        debug!("Hub {} Device {} will now be read because the configuration changed",
+                                                                hub.config.name, device.config.name);
+                                                        device.cur_waits = device.waits_till_read + 10;
+                                                    } else {
+                                                        error!("Function {} requires registers to be set", command.function);
+                                                    }
+                                                },
+                                                "registers_change" => {
+                                                    change_register(&command, &mut device);
+                                                }
+                                                _ => {
+                                                    error!("Function {} is unknown for {}", command.function, topic);
+                                                }
+                                            }
                                         }
-
                                     } else if topic.starts_with("energy2mqtt/cmds/modbus") {
                                         //"energy2mqtt/cmds/modbus/{}/{}/{}"
                                         /* Get the correct device to run */
@@ -290,7 +302,8 @@ impl ModbusManger
 
                                                         /* Write our register */
                                                         set_device_parms::write_register(device, proto, &mut conn_state, reg.clone(), value).await;
-                                                        debug!("Hub {} Device {} will now be read because the configuration changed", hub.config.name, device.config.name);
+                                                        debug!("Hub {} Device {} will now be read because the configuration changed",
+                                                                hub.config.name, device.config.name);
                                                         device.cur_waits = device.waits_till_read + 10;
                                                     }
                                                 }
@@ -299,7 +312,6 @@ impl ModbusManger
                                         }
                                     }
                                 }
-
                             }
 
 
@@ -374,5 +386,65 @@ impl ModbusManger
             info!("Modbus is stopping all hub tasks");
             self.task_monitor.clear_all().await;
         }
+    }
+}
+
+fn change_register(command: &ModbusMqttCommand, device: &mut ModbusDevice) {
+
+    if let Some(changes) = &command.changes {
+        for change in changes {
+            /* Check if we needs to override or add a new register */
+            let mut found = false;
+
+            /* Our device may be bogus if no registers are specified */
+            if device.registers.len() > 0 {
+                for index in 0..=device.registers.len() {
+                    let dregister = &device.registers[index];
+                    if let Register::Modbus(register) = &dregister {
+                        if register.input_type == change.input_type &&
+                            register.register == change.register {
+                                /* We already now the register so just update all non optional paramters*/
+                                let mut cloned_register = register.clone();
+                                cloned_register.name = change.name.clone();
+                                cloned_register.input_type = change.input_type.clone();
+                                cloned_register.length = change.length;
+                                cloned_register.format = change.format.clone();
+                                cloned_register.scaler = change.scaler;
+
+                                info!("Replacing register definition for {} @ {}", change.name, change.register);
+                                device.registers[index] = Register::Modbus(cloned_register);
+                                found = true;
+                                break;
+                        }
+                    }
+                }
+            }
+
+            /* Already set the register */
+            if found {
+                break;
+            }
+
+            /* We need to create a new one */
+            info!("Adding a new register definition for {} @ {}", change.name, change.register);
+            device.registers.push(Register::Modbus(ModbusRegister {
+                name: change.name.clone(),
+                input_type: change.input_type.clone(),
+                register: change.register,
+                length: change.length,
+                format: change.format.clone(),
+                scaler: change.scaler,
+                scale_factor: change.scale_factor.clone(),
+                unit_of_measurement: change.unit_of_measurement.clone(),
+                device_class: change.device_class.clone(),
+                state_class: change.state_class.clone(),
+                platform: change.platform.clone(),
+                mappings: change.mappings.clone(),
+                command_template: change.command_template.clone(),
+                value_template: change.value_template.clone()
+            }));
+        }
+    } else {
+        error!("Function {} needs paramter changes to be set", command.function);
     }
 }
