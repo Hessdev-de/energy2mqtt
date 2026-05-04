@@ -1,0 +1,126 @@
+manufacturer: IVY
+model: EM1180xx-single-phase
+aliases:
+  - EM118089
+  - EM118090
+  - EM118091
+# The meter only has ONE live line but we want consistant naming
+registers:
+  - name: voltage_l1
+    input_type: Input
+    register: 256
+    length: 2
+    format: UInt32
+    scaler: 0.001
+    unit_of_measurement: V
+    device_class: voltage
+    state_class: measurement
+
+  - name: current_l1
+    input_type: Input
+    register: 258
+    length: 2
+    format: Int32
+    scaler: 0.001
+    unit_of_measurement: A
+    device_class: current
+    state_class: measurement
+
+  - name: active_power
+    input_type: Input
+    register: 260
+    length: 2
+    format: Int32
+    scaler: 1
+    unit_of_measurement: W
+    device_class: power
+    state_class: measurement
+
+  # Home Assistant and therefore energy2mqtt have no support for
+  # VA as a unit so we use W, which is wrong but not as wrong to
+  # break something
+  - name: apparent_power
+    input_type: Input
+    register: 262
+    length: 2
+    format: Int32
+    scaler: 1
+    unit_of_measurement: W
+    device_class: power
+    state_class: measurement
+
+  - name: reactive_power
+    input_type: Input
+    register: 264
+    length: 2
+    format: Int32
+    scaler: 1
+    unit_of_measurement: var
+    device_class: reactive_power
+    state_class: measurement
+
+  - name: frequency
+    input_type: Input
+    register: 266
+    length: 1
+    format: Int16
+    scaler: 0.1
+    unit_of_measurement: Hz
+    device_class: frequency
+    state_class: measurement
+
+  - name: power_factor
+    input_type: Input
+    register: 267
+    length: 1
+    format: Int16
+    scaler: 0.001
+
+  - name: positive_energy
+    input_type: Input
+    register: 270
+    length: 2
+    format: UInt32
+    scaler: 0.01
+    unit_of_measurement: kWh
+    device_class: energy
+    state_class: total_increasing
+
+  - name: negative_energy
+    input_type: Holding
+    register: 280
+    length: 2
+    format: UInt32
+    scaler: 0.01
+    unit_of_measurement: kWh
+    device_class: energy
+    state_class: total_increasing
+
+  - name: positive_reactive_energy
+    input_type: Input
+    register: 300
+    length: 2
+    format: UInt32
+    scaler: 0.01
+    unit_of_measurement: kvarh
+    device_class: reactive_energy
+    state_class: total_increasing
+
+  - name: negative_reactive_energy
+    input_type: Input
+    register: 310
+    length: 2
+    format: UInt32
+    scaler: 0.01
+    unit_of_measurement: kvarh
+    device_class: reactive_energy
+    state_class: total_increasing
+
+
+# We need the templates to have all information
+templates:
+  - name: current_all
+    value: "current_l1"
+    unit_of_measurement: A
+    device_class: current
+    state_class: measurement

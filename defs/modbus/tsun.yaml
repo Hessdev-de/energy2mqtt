@@ -7,7 +7,7 @@ registers:
     register: 5040
     length: 1
     format: UInt16
-    scaler: 1.0
+    platform: number
     description: "Operational Mode"
     mapping:
       - "0.0": "Standby"
@@ -23,7 +23,7 @@ registers:
     register: 5041
     length: 1
     format: UInt16
-    scaler: 1.0
+    platform: number
     description: "Dispatching Mode"
     mapping:
       - "0.0": "Numeric"
@@ -33,9 +33,11 @@ registers:
     input_type: Holding
     register: 5042
     length: 1
+    scaler: -1.0
     format: Int16
-    scaler: 1.0
+    platform: number
     description: "Power"
+    device_class: "number"
     state_class: "power"
     unit_of_measurement: "W"
 
@@ -44,7 +46,7 @@ registers:
     register: 5047
     length: 1
     format: Int16
-    scaler: 1.0
+    platform: number
     description: "Meter type selected"
     mapping:
       - "0.0": "None"
@@ -61,6 +63,7 @@ registers:
     length: 1
     format: UInt16
     scaler: 1.0
+    platform: number
     description: "System operation mode"
     mapping:
       - "0.0": "Shutdown"
@@ -83,8 +86,8 @@ registers:
     input_type: Input
     register: 3017
     length: 1
-    format: UInt16
-    scaler: 0.1
+    format: Int16
+    scaler: -0.1
     description: "Battery"
     device_class: current
     unit_of_measurement: "A"
@@ -93,11 +96,19 @@ registers:
     input_type: Input
     register: 3018
     length: 1
-    format: UInt16
-    scaler: 1.0
+    format: Int16
+    scaler: -1.0
     description: "Battery"
     device_class: power
     unit_of_measurement: "W"
+
+  - name: soh
+    input_type: Input
+    register: 4663
+    length: 1
+    format: UInt16
+    scaler: 1.0
+    description: "State of health"
 
   - name: soc
     input_type: Input
@@ -113,8 +124,8 @@ registers:
     input_type: Input
     register: 3034
     length: 1
-    format: UInt16
-    scaler: 1.0
+    format: Int16
+    scaler: -1.0
     description: "Grid"
     device_class: power
     unit_of_measurement: "W"
@@ -138,4 +149,64 @@ registers:
     description: "Internal temperature"
     device_class: temperature
     unit_of_measurement: "°C"
+
+  - name: bms_connection
+    input_type: Holding
+    register: 4819
+    length: 1
+    format: UInt16
+    scaler: 1.0
+    description: Set the desired BMS connection state
+
+  - name: soc_limit_min
+    input_type: Holding
+    register: 5038
+    length: 1
+    format: UInt16
+    scaler: 1.0
+    description: Set the desired SOC minimum limit
+
+  - name: soc_limit_max
+    input_type: Holding
+    register: 5039
+    length: 1
+    format: UInt16
+    scaler: 1.0
+    description: Set the desired SOC maximum limit
+
+  - name: pack_one_capacity
+    input_type: Input
+    register: 4024
+    length: 1
+    format: UInt16
+    scaler: 0.1
+    description: Capacity of pack 1
+
+  - name: pack_one_voltage
+    input_type: Input
+    register: 4012
+    length: 1
+    format: UInt16
+    scaler: 0.1
+    description: Voltage of pack 1
+
+templates:
+  - name: factory_capacity
+    value: "pack_one_capacity * pack_one_voltage / 1000"
+    unit_of_measurement: kWh
+    device_class: energy
+    state_class: measurement
+
+  - name: capacity
+    value: "pack_one_capacity * pack_one_voltage * (soh / 100) / 1000"
+    unit_of_measurement: kWh
+    device_class: energy
+    state_class: measurement
+
+  - name: useable_capacity
+    #value: "pack_one_capacity * pack_one_voltage * (soh / 100) * (soc/ 100) / 1000"
+    value: "capacity * (soc / 100)"
+    unit_of_measurement: kWh
+    device_class: energy
+    state_class: measurement
 

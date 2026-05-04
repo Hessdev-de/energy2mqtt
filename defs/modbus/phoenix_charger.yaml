@@ -1,9 +1,17 @@
 manufacturer: Phoenix Contact
 model: EV-CC-0000000
 registers:
-  - name: charge_enabled
-    input_type: Holding
-    register: 436
-    length: 2
-    format: Int16
-    scaler: 1.0
+  - name: state
+    input_type: Input
+    register: 100
+    length: 1
+    format: UInt16
+
+  - name: allow_loading
+    input_type: Coil
+    register: 400
+    length: 1
+    format: Coil
+    platform: switch
+    command_template: "{% if value == \"ON\" %}1{% else %}0{% endif %}"
+    value_template: "{% if ## == 1 %}ON{% else %}OFF{% endif %}"
