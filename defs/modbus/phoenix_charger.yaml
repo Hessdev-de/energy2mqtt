@@ -1,12 +1,51 @@
 manufacturer: Phoenix Contact
 model: EV-CC-0000000
 registers:
+
+  #######################################################################################
+  # State of the Charger
+  # A: No car connected
+  # B: Car connected but not charing
+  # C: Charging
+  # D: Ventilation needed
+  # E: Connection failed
+  # F: EVSE disabled
+  #
+  # We will also export simple binary sensors for fault, free and charging
   - name: state
     input_type: Input
     register: 100
     length: 1
     format: UInt16
+    platform: sensor
+    value_template: "{% if ## == 65 %}Free{% elif ## == 66 %}Connected{% elif ## == 67 %}Charging{% elif ## == 68 %}Ventilation needed{% elif ## == 69 %}Connection failed{% else %}Fault / Disabled{% endif %}"
 
+  #######################################################################################
+  # Proximity (maximum charging capacity of the cable used)
+  #
+  - name: proximity
+    input_type: Input
+    register: 101
+    length: 1
+    format: UInt16
+    platform: sensor
+    device_class: current
+    unit_of_measurement: A
+
+  #######################################################################################
+  # Current charging time in seconds
+  - name: charging_time
+    input_type: Input
+    register: 102
+    length: 2
+    format: UInt32
+    platform: sensor
+    device_class: duration
+    unit_of_measurement: s
+
+  #######################################################################################
+  # Enable charging if a car is connected
+  #
   - name: allow_loading
     input_type: Coil
     register: 400
@@ -15,3 +54,45 @@ registers:
     platform: switch
     command_template: "{% if value == \"ON\" %}1{% else %}0{% endif %}"
     value_template: "{% if ## == 1 %}ON{% else %}OFF{% endif %}"
+
+  #######################################################################################
+  # The current set between the EV and EVSE
+  # This is the one used on the PWM signal
+  - name: active_current
+    input_type: Holding
+    register: 300
+    length: 1
+    format: Int16
+    platform: sensor
+    device_class: current
+    unit_of_measurement: A
+
+  - name: contactor_monitoring
+    input_type: Holding
+    register: 390
+    length: 1
+    format: Int16
+    platform: sensor
+    value_template: "{% if ## == 0 %}Disabled{% elif ## == 1 %}Inactive{% elif ## == 2 %}Voltage on CT{% elif ## == 3 %}N/O auxiliary{% elif ## == 4 %}N/C auxiliary{% elif ## == 5 %}energy meter{% else %}Unknown{% endif %}"
+
+  #######################################################################################
+  # User setting of the current between EV and EVSE
+  # the range are the values of
+  # 6, 10, 13, 16, 20, 32, 63, 70, 80
+  - name: selected_current
+    input_type: Holding
+    register: 528
+    length: 1
+    format: Int16
+    device_class: current
+    unit_of_measurement: A
+    scaler: 1.0
+    precision: 1
+    platform: select
+    options:
+      - 6.0
+      - 10.0
+      - 13.0
+      - 16.0
+      - 20.0
+      - 32.0

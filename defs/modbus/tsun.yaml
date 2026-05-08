@@ -2,76 +2,27 @@ manufacturer: TSUN
 model: Micro Battery
 registers:
 
-  - name: operation_mode
-    input_type: Holding
-    register: 5040
-    length: 1
-    format: UInt16
-    platform: number
-    description: "Operational Mode"
-    mapping:
-      - "0.0": "Standby"
-      - "1.0": "Plan mode"
-      - "2.0": "Battery"
-      - "3.0": "Remote Control"
-      - "4.0": "N/A"
-      - "5.0": "Scheduling Mode (Grid)"
-      - "6.0": "Realtime Tariff"
+#######################################################################################
+#
+# Read-Only Input registers
+# 
 
-  - name: dispatch_mode
-    input_type: Holding
-    register: 5041
-    length: 1
-    format: UInt16
-    platform: number
-    description: "Dispatching Mode"
-    mapping:
-      - "0.0": "Numeric"
-      - "1.0": "Percentage"
-
-  - name: dispatch_power
-    input_type: Holding
-    register: 5042
-    length: 1
-    scaler: -1.0
-    format: Int16
-    platform: number
-    description: "Power"
-    device_class: "number"
-    state_class: "power"
-    unit_of_measurement: "W"
-
-  - name: meter_type
-    input_type: Holding
-    register: 5047
-    length: 1
-    format: Int16
-    platform: number
-    description: "Meter type selected"
-    mapping:
-      - "0.0": "None"
-      - "1.0": "Single-phase WiFi"
-      - "2.0": "Three-phase WiFi"
-      - "3.0": "Single-phase RS485"
-      - "4.0": "Three-phase RS485"
-      - "5.0": "Single-phase Shelly"
-      - "6.0": "Three-phase Shelly"
-
+#######################################################################################
+# Operational Mode
+#
   - name: sys_operating_mode
     input_type: Input
     register: 3000
     length: 1
     format: UInt16
     scaler: 1.0
-    platform: number
+    platform: sensor
     description: "System operation mode"
-    mapping:
-      - "0.0": "Shutdown"
-      - "1.0": "BMS offline (disconnected)"
-      - "2.0": "Off-grid"
-      - "3.0": "Grid connected"
-      - "4.0": "Fault"
+    value_template: "{% if ## == 0 %}Shutdown{% elif ## == 1 %}BMS offline (disconnected){% elif ## == 2 %}Off-grid{% elif ## == 3 %}Grid connected{% elif ## == 4 %}Fault{% else %}Unknown{% endif %}"
 
+#######################################################################################
+# Global Battery information, voltqage, current, power and state-of-charge
+#
   - name: battery_voltage
     input_type: Input
     register: 3016
@@ -102,14 +53,6 @@ registers:
     device_class: power
     unit_of_measurement: "W"
 
-  - name: soh
-    input_type: Input
-    register: 4663
-    length: 1
-    format: UInt16
-    scaler: 1.0
-    description: "State of health"
-
   - name: soc
     input_type: Input
     register: 3019
@@ -120,6 +63,9 @@ registers:
     unit_of_measurement: "%"
     state_class: measurement
 
+#######################################################################################
+# Grid information of the battery
+#
   - name: grid_power
     input_type: Input
     register: 3034
@@ -140,6 +86,9 @@ registers:
     device_class: reactive_power
     unit_of_measurement: "var"
 
+#######################################################################################
+# Internal temperature of the battery
+#
   - name: temperature
     input_type: Input
     register: 3082
@@ -150,13 +99,71 @@ registers:
     device_class: temperature
     unit_of_measurement: "°C"
 
-  - name: bms_connection
-    input_type: Holding
-    register: 4819
+#######################################################################################
+# Information about the first battery pack
+#
+# If I get a battery with more than one pack I will add more registers
+#
+  - name: pack_one_voltage
+    input_type: Input
+    register: 4012
+    length: 1
+    format: UInt16
+    scaler: 0.1
+    description: Voltage of pack 1
+
+  - name: pack_one_capacity
+    input_type: Input
+    register: 4024
+    length: 1
+    format: UInt16
+    scaler: 0.1
+    description: Capacity of pack 1
+  
+  - name: model
+    input_type: Input
+    register: 4600
+    length: 10
+    format: String
+    description: Maschine Model
+
+  - name: bms_software_version
+    input_type: Input
+    register: 4610
+    length: 10
+    format: String
+    description: BMS Software Version
+
+  - name: control_software_version_1
+    input_type: Input
+    register: 4620
+    length: 10
+    format: String
+    description: Control Software Version 1
+
+  - name: control_software_version_2
+    input_type: Input
+    register: 4630
+    length: 10
+    format: String
+    description: Control Software Version 2
+
+  - name: serialnumber
+    input_type: Input
+    register: 4640
+    length: 10
+    format: String
+    description: Maschine Serial Number
+
+#######################################################################################
+# State of Health for the whole system
+  - name: soh
+    input_type: Input
+    register: 4663
     length: 1
     format: UInt16
     scaler: 1.0
-    description: Set the desired BMS connection state
+    description: "State of health"
 
   - name: soc_limit_min
     input_type: Holding
@@ -174,39 +181,105 @@ registers:
     scaler: 1.0
     description: Set the desired SOC maximum limit
 
-  - name: pack_one_capacity
-    input_type: Input
-    register: 4024
+#######################################################################################
+#
+# Holding registers
+# 
+  - name: operation_mode
+    input_type: Holding
+    register: 5040
     length: 1
     format: UInt16
-    scaler: 0.1
-    description: Capacity of pack 1
+    platform: sensor
+    description: "Operational Mode"
+    value_template: "{% if ## == 0 %}Standby{% elif ## == 1 %}Plan mode{% elif ## == 2 %}Battery{% elif ## == 3 %}Remote Control{% elif ## == 4 %}Reserved{% elif ## == 5 %}Scheduling Mode (Grid){% elif ## == 6 %}Realtime Tariff{% else %}Unknown{% endif %}"
 
-  - name: pack_one_voltage
-    input_type: Input
-    register: 4012
+  - name: dispatch_mode
+    input_type: Holding
+    register: 5041
     length: 1
     format: UInt16
-    scaler: 0.1
-    description: Voltage of pack 1
+    platform: sensor
+    description: "Dispatching Mode"
+    value_template: "{% if ## == 0 %}Numeric{% elif ## == 1 %}Percentage{% else %}Unknown{% endif %}"
 
+  - name: dispatch_power
+    input_type: Holding
+    register: 5042
+    length: 1
+    scaler: -1.0
+    format: Int16
+    platform: number
+    description: "Power"
+    device_class: power
+    unit_of_measurement: W
+    min: -2000
+    max: 2000
+
+  - name: grid_norm
+    input_type: Holding
+    register: 5046
+    length: 1
+    format: UInt16
+    scaler: 1.0
+    description: Set the correct norm for your country
+
+  - name: meter_type
+    input_type: Holding
+    register: 5047
+    length: 1
+    format: Int16
+    platform: sensor
+    description: "Meter type selected"
+    value_template: "{% if ## == 0 %}None{% elif ## == 1 %}Single-phase WiFi{% elif ## == 2 %}Three-phase WiFi{% elif ## == 3 %}Single-phase RS485{% elif ## == 4 %}Three-phase RS485{% elif ## == 5 %}Single-phase Shelly{% elif ## == 6 %}Three-phase Shelly{% else %}Unknown{% endif %}"
+
+  - name: power_gradient
+    input_type: Holding
+    register: 5057
+    length: 1
+    format: UInt16
+    scaler: 1.0
+    description: Ramp-up time after grid connection is detected
+
+#######################################################################################
+#
+# Caution: Only use those registers if you REALLY know what you are doing!
+#
+  - name: bms_wakeup
+    input_type: Holding
+    register: 4817
+    length: 1
+    format: UInt16
+    scaler: 1.0
+    description: Wake up the BMS by sending 1
+
+  - name: bms_connection
+    input_type: Holding
+    register: 4819
+    length: 1
+    format: UInt16
+    scaler: 1.0
+    description: Set the desired BMS connection state
+
+
+#######################################################################################
+# Templates to get the real and useable capacity for the tsun batteries
+#
 templates:
   - name: factory_capacity
-    value: "pack_one_capacity * pack_one_voltage / 1000"
+    value: "pack_one_capacity * 51.2 / 1000"
     unit_of_measurement: kWh
     device_class: energy
     state_class: measurement
 
   - name: capacity
-    value: "pack_one_capacity * pack_one_voltage * (soh / 100) / 1000"
+    value: "pack_one_capacity * 51.2 * (soc / 100) / 1000"
     unit_of_measurement: kWh
     device_class: energy
     state_class: measurement
 
-  - name: useable_capacity
-    #value: "pack_one_capacity * pack_one_voltage * (soh / 100) * (soc/ 100) / 1000"
-    value: "capacity * (soc / 100)"
+  - name: max_usable_capacity
+    value: "capacity * (soc_limit_max - soc_limit_min) / 100"
     unit_of_measurement: kWh
     device_class: energy
     state_class: measurement
-
