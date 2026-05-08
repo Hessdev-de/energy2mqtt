@@ -24,6 +24,12 @@ pub enum ModbusRegisterFormat {
 }
 
 #[derive(Clone, PartialEq, Deserialize)]
+pub enum Endianess {
+    Big,
+    Little,
+}
+
+#[derive(Clone, PartialEq, Deserialize)]
 pub struct Mapping { 
     pub data: String,
     pub mapping: serde_json::Value
@@ -38,6 +44,12 @@ fn default_none_str() -> String {
 fn default_platform() -> String {
     "sensor".to_string()
 }
+fn default_precision() -> u32 {
+    3
+}
+fn default_endianess() -> Endianess {
+    Endianess::Big
+}
 
 #[derive(Clone, PartialEq, Deserialize)]
 pub struct ModbusRegister {
@@ -46,8 +58,12 @@ pub struct ModbusRegister {
     pub register: u16,
     pub length: u16,
     pub format: ModbusRegisterFormat,
+    #[serde(default="default_endianess")]
+    pub endianess: Endianess,
     #[serde(default="default_scaler")]
     pub scaler: f32,
+    #[serde(default="default_precision")]
+    pub precision: u32,
     /// Reference to a SunSpec scale factor register name (e.g., "A_SF")
     /// The value from that register will be used as 10^x multiplier
     #[serde(default)]
@@ -66,12 +82,20 @@ pub struct ModbusRegister {
     pub command_template: String,
     #[serde(default)]
     pub value_template: String,
+    #[serde(default)]
+    pub options: Vec<String>,
+
+    pub min: Option<u32>,
+    pub max: Option<u32>,
+    pub step: Option<i32>,
 }
 
 #[derive(Deserialize, Clone)]
 pub struct TemplateRegister {
     pub name: String,
     pub value: String,
+    #[serde(default="default_precision")]
+    pub precision: u32,
     pub unit_of_measurement: String,
     pub device_class: String,
     pub state_class: String,

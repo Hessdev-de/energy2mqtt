@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::time::Duration;
+use crate::config::defaults::Defaults;
 use crate::metering_modbus::registers::ModbusRegister;
 use crate::mqtt::SubscribeData;
 use crate::{config::{ConfigBases, ConfigChange, ConfigOperation, ModbusConfig, ModbusDeviceConfig, ModbusHubConfig, ModbusProtoConfig}, metering_modbus::registers::Register, models::DeviceProtocol, mqtt::{home_assistant::HaSensor, Transmission, publish_protocol_count}, task_monitor::TaskMonitor, CONFIG};
@@ -88,6 +89,7 @@ pub struct ModbusDevice {
     waits_till_read: u32,
     cur_waits: u32,
     registers: Vec<registers::Register>,
+    default: Option<Vec<Defaults>>,
 }
 
 #[derive(Deserialize)]
@@ -157,11 +159,23 @@ impl ModbusManger
                         for dev in config_hub.devices.iter() {
                             let (regs, manu, model) = registers::get_registers(&dev.meter);
                             let r = regs.clone();
+                            let defaults = match &dev.defaults {
+                                Some(defs) => {
+                                    let mut lists = Vec::new();
+                                    for def in defs {
+                                        lists.push(Defaults::new(def))
+                                    }
+                                    Some(lists)
+                                },
+                                None => None,
+                            };
+
                             let d = ModbusDevice {
                                 config: dev.clone(),
                                 waits_till_read: 1,
                                 cur_waits: 0,
                                 registers: regs,
+                                default: defaults,
                             };
                             devs.push(d);
 
@@ -301,7 +315,7 @@ impl ModbusManger
                                                         info!("WRITING {} -> {} -> {:?}", r.register, payload, value);
 
                                                         /* Write our register */
-                                                        set_device_parms::write_register(device, proto, &mut conn_state, reg.clone(), value).await;
+                                                        set_device_parms::write_register(device, proto, &mut conn_state, &reg, value).await;
                                                         debug!("Hub {} Device {} will now be read because the configuration changed",
                                                                 hub.config.name, device.config.name);
                                                         device.cur_waits = device.waits_till_read + 10;
@@ -433,7 +447,9 @@ fn change_register(command: &ModbusMqttCommand, device: &mut ModbusDevice) {
                 register: change.register,
                 length: change.length,
                 format: change.format.clone(),
+                endianess: change.endianess.clone(),
                 scaler: change.scaler,
+                precision: change.precision,
                 scale_factor: change.scale_factor.clone(),
                 unit_of_measurement: change.unit_of_measurement.clone(),
                 device_class: change.device_class.clone(),
@@ -441,7 +457,11 @@ fn change_register(command: &ModbusMqttCommand, device: &mut ModbusDevice) {
                 platform: change.platform.clone(),
                 mappings: change.mappings.clone(),
                 command_template: change.command_template.clone(),
-                value_template: change.value_template.clone()
+                value_template: change.value_template.clone(),
+                options: change.options.clone(),
+                min: None,
+                max: None,
+                step: None,
             }));
         }
     } else {

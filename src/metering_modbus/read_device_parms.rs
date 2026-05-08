@@ -2,7 +2,7 @@
 use evalexpr::{ContextWithMutableVariables, DefaultNumericTypes, HashMapContext};
 use log::{debug, error, info, warn};
 use rmodbus::{client::ModbusRequest, guess_response_frame_len, ModbusProto};
-use crate::{metering_modbus::{HubConnectionState, ModbusDevice, ModbusError, registers}, mqtt::{PublishData, Transmission}};
+use crate::{config::ModbusHubConfig, metering_modbus::{HubConnectionState, ModbusDevice, ModbusError, ModbusHub, registers, set_device_parms::write_register, utils::{self, round_number}}, mqtt::{PublishData, Transmission}};
 use serde::Serialize;
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::TcpStream, sync::mpsc::Sender, time::timeout};
 use std::collections::HashMap;
@@ -73,6 +73,45 @@ pub async fn read_hub_devices(
     for idx in devices_to_read {
         let device = &mut devices[idx];
         device.cur_waits = 0;
+
+        if let Some(default_list) = &device.default {
+            for default in default_list {
+                /* We need to set some registers based on the Defaults */
+                for default in &default.defaults {
+                    match default.function {
+                        crate::config::defaults::DefaultFunction::Set => {
+                            if default.register.is_none() {
+                                error!("A Set default was found without a register, which is wrong");
+                                continue;
+                            }
+
+                            let rname = default.register.clone().unwrap();
+                            for reg in &device.registers {
+                                if let Register::Modbus(mreg) = reg {
+                                    if mreg.name == rname {
+                                        info!("Setting default for {rname} to {}", default.value);
+                                        write_register(device, proto, conn_state,
+                                                reg, utils::get_data_vec(reg, &default.value)).await;
+                                    }
+                                }
+                            }
+                        },
+                        crate::config::defaults::DefaultFunction::Sleep => {
+                            /* We need to sleep for some time */
+                            let timeout: u64 = match default.value.parse() {
+                                Ok(t) => t,
+                                Err(_) => 1000,
+                            };
+
+                            tokio::time::sleep(Duration::from_millis(timeout)).await;
+                        },
+                    }
+                }
+            }
+            /* Unset the default, we are done here */
+            device.default = None;
+
+        }
 
         debug!("Hub {} Device {} start reading", hub_name, device.config.name);
 
@@ -435,7 +474,8 @@ pub async fn read_device_registers(
         };
 
         {
-            let v = scaled_value;
+
+            let v = round_number(scaled_value, reg.precision);
             let mut value = serde_json::Value::from(v);
 
             let mut found = false;
@@ -476,6 +516,8 @@ pub async fn read_device_registers(
                 0.0
             },
         };
+
+        let value = round_number(value, reg.precision);
         meter_data.metered_values.insert(reg.name.clone(), serde_json::Value::from(value));
         let _ = context.set_value(reg.name.clone(), evalexpr::Value::Float(value as f64));
     }

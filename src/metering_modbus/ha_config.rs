@@ -8,7 +8,9 @@ pub async fn get_cmp_from_reg(reg: Register, discover: &mut HaSensor,
                         hub_name: &String, device_name: &String) {
 
     let (platform, name, device_class,
-        unit_of_measurement, state_class, value_template) = match reg.clone() {
+        unit_of_measurement, state_class,
+        value_template, options,
+        min, max, step) = match reg.clone() {
         registers::Register::Template(register) => (
                 register.platform,
                 register.name,
@@ -16,6 +18,10 @@ pub async fn get_cmp_from_reg(reg: Register, discover: &mut HaSensor,
                 register.unit_of_measurement,
                 register.state_class,
                 register.value_template,
+                Vec::new(),
+                None,
+                None,
+                None
             ),
         registers::Register::Modbus(register) => (
                 register.platform,
@@ -24,6 +30,10 @@ pub async fn get_cmp_from_reg(reg: Register, discover: &mut HaSensor,
                 register.unit_of_measurement,
                 register.state_class,
                 register.value_template,
+                register.options,
+                register.min,
+                register.max,
+                register.step
             ),
     };
 
@@ -55,6 +65,22 @@ pub async fn get_cmp_from_reg(reg: Register, discover: &mut HaSensor,
         cmp = cmp.add_information("value_template", value_template.into());
     }
 
+    if !options.is_empty() {
+        cmp = cmp.add_information("options", options.into());
+    }
+
+    if let Some(min) = min {
+        cmp = cmp.add_information("min", min.into());
+    }
+
+    if let Some(max) = max {
+        cmp = cmp.add_information("max", max.into());
+    }
+
+    if let Some(step) = step {
+        cmp = cmp.add_information("step", step.into());
+    }
+
     /* Some functions are only available to "real" registers */
     if let registers::Register::Modbus(r) = reg {
 
@@ -65,7 +91,7 @@ pub async fn get_cmp_from_reg(reg: Register, discover: &mut HaSensor,
             let topic= format!("energy2mqtt/cmds/modbus/{}/{}/{}", hub_name, device_name, name);
 
             match r.platform.as_str() {
-                "number" | "switch" => {
+                "number" | "switch" | "select" => {
                     cmp = cmp.add_information("command_topic", Value::from(topic.clone()));
                     if !r.command_template.is_empty() {
                         cmp = cmp.add_information("command_template", r.command_template.clone().into());

@@ -11,7 +11,6 @@ pub async fn set(
     registers: &HashMap<String, Vec<u8>>,
     device: &ModbusDevice,
     proto: ModbusProto,
-    //hub_sender: &Sender<Transmission>,
     conn_state: &mut HubConnectionState,
 ){
     // Ensure we have a connection (reuse existing or establish new)
@@ -85,7 +84,7 @@ pub async fn set(
     }
 }
 
-pub async fn write_register(device: &ModbusDevice, proto: ModbusProto,  conn_state: &mut HubConnectionState, register: Register, value: Vec<u8> ) {
+pub async fn write_register(device: &ModbusDevice, proto: ModbusProto,  conn_state: &mut HubConnectionState, register: &Register, value: Vec<u8> ) {
     if let Register::Modbus(r) = register {
 
         let address = r.register;
