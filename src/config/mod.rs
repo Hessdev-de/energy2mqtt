@@ -10,6 +10,8 @@ use std::path::Path;
 use std::io::prelude::*;
 use std::sync::RwLock;
 
+pub mod defaults;
+
 fn httpd_enabled_default() -> bool { return true }
 fn httpd_port_default() -> u16 { return 8240 }
 
@@ -82,6 +84,7 @@ pub struct ModbusDeviceConfig {
     pub meter: String,
     pub slave_id: u8,
     pub read_interval: u32,
+    pub defaults: Option<Vec<String>>, /* Name of a default configuration */
 }
 
 #[derive(Deserialize, Serialize, Clone, PartialEq)]
