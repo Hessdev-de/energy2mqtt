@@ -90,6 +90,7 @@ pub struct ModbusDevice {
     cur_waits: u32,
     registers: Vec<registers::Register>,
     default: Option<Vec<Defaults>>,
+    parameters: registers::ModbusDeviceParameters,
 }
 
 #[derive(Deserialize)]
@@ -157,7 +158,7 @@ impl ModbusManger
                     devices: {
                         let mut devs: Vec<ModbusDevice> = Vec::new();
                         for dev in config_hub.devices.iter() {
-                            let (regs, manu, model) = registers::get_registers(&dev.meter);
+                            let (regs, manu, model, parameters) = registers::get_registers(&dev.meter);
                             let r = regs.clone();
                             let defaults = match &dev.defaults {
                                 Some(defs) => {
@@ -176,6 +177,7 @@ impl ModbusManger
                                 cur_waits: 0,
                                 registers: regs,
                                 default: defaults,
+                                parameters: parameters,
                             };
                             devs.push(d);
 

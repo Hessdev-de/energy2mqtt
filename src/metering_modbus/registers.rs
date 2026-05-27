@@ -111,16 +111,41 @@ pub enum Register {
     Modbus(ModbusRegister)
 }
 
+fn default_one() -> u64 {
+    0
+}
+
+#[derive(Deserialize, Clone)]
+pub struct ModbusDeviceParameters {
+    #[serde(default="default_one")]
+    pub write_retries: u64,
+    #[serde(default="default_one")]
+    pub write_wait_before: u64,
+    #[serde(default="default_one")]
+    pub write_wait_after: u64,
+}
+
+impl Default for ModbusDeviceParameters {
+    fn default() -> Self {
+        Self {
+            write_retries: default_one(),
+            write_wait_before: default_one(),
+            write_wait_after: default_one()
+        }
+    }
+}
+
 #[derive(Deserialize)]
 pub struct ModbusRegisterFile {
     manufacturer: String,
     model: String,
+    parameters: Option<ModbusDeviceParameters>,
     registers: Vec<ModbusRegister>,
     #[serde(default)]
     templates: Vec<TemplateRegister>
 }
 
-fn parse_registers(file: &mut File)  -> (Vec<Register>, String, String) {
+fn parse_registers(file: &mut File)  -> (Vec<Register>, String, String, ModbusDeviceParameters) {
     let mut regs = Vec::new();
 
     let mut contents = String::new();
@@ -131,6 +156,7 @@ fn parse_registers(file: &mut File)  -> (Vec<Register>, String, String) {
         Err(e) => {
             error!("Failed to parse: {e:?}");
             ModbusRegisterFile{
+                parameters: None,
                 registers: Vec::new(),
                 templates: Vec::new(),
                 manufacturer: "fault".to_string(),
@@ -151,10 +177,10 @@ fn parse_registers(file: &mut File)  -> (Vec<Register>, String, String) {
         regs.push(Register::Template(temp));
     }
 
-    return (regs, whole_file.manufacturer, whole_file.model);
+    return (regs, whole_file.manufacturer, whole_file.model, whole_file.parameters.unwrap_or_default());
 }
 
-pub fn get_registers(model: &String) -> (Vec<Register>, String, String) {
+pub fn get_registers(model: &String) -> (Vec<Register>, String, String, ModbusDeviceParameters) {
     // Model can include subdirectory path, e.g., "sunspec/sunspec_inverter_3p"
     // Search order:
     // 1. config/modbus/{model}.yaml (user override)
@@ -187,7 +213,7 @@ pub fn get_registers(model: &String) -> (Vec<Register>, String, String) {
         }
         None => {
             error!("Meter definition of {model} not found in any of: {:?}", search_paths);
-            (Vec::new(), "".to_string(), "".to_string())
+            (Vec::new(), "".to_string(), "".to_string(), ModbusDeviceParameters::default())
         }
     }
 }

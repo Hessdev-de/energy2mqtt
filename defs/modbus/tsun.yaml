@@ -1,5 +1,12 @@
 manufacturer: TSUN
 model: Micro Battery
+
+# TSUN batteries require a bit of time between the frames
+parameters:
+  write_retries: 3
+  write_wait_before: 100
+  write_wait_after: 10
+
 registers:
 
 #######################################################################################

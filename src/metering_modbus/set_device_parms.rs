@@ -74,11 +74,19 @@ pub async fn set(
                     continue;
                 }
 
-                match write_single_register(stream, request, proto).await {
-                    Ok(_) => info!("Written register {} on Device {} of Hub {}", address, device.config.name, hub_name),
-                    Err(e) => error!("Writing register {} on Device {} of Hub {} failed: {e:?}", address, device.config.name, hub_name),
+                /* We run one or multiple times */
+                for _  in 0..device.parameters.write_retries {
+                    /* Wait if needed */
+                    tokio::time::sleep(Duration::from_millis(device.parameters.write_wait_before)).await;
+                    match write_single_register(stream, request.clone(), proto).await {
+                        Ok(_) => {
+                            info!("Written register {} on Device {} of Hub {}", address, device.config.name, hub_name);
+                            break;
+                        },
+                        Err(e) => error!("Writing register {} on Device {} of Hub {} failed: {e:?}", address, device.config.name, hub_name),
+                    }
+                    tokio::time::sleep(Duration::from_millis(device.parameters.write_wait_after)).await;
                 }
-
             }
         }
     }
@@ -121,9 +129,18 @@ pub async fn write_register(device: &ModbusDevice, proto: ModbusProto,  conn_sta
         /* Get our stream to write to */
         let stream = conn_state.stream.as_mut().unwrap();
 
-        match write_single_register(stream, request, proto).await {
-            Ok(_) => info!("Written register {} on Device {}", address, device.config.name),
-            Err(e) => error!("Writing register {} on Device {} failed: {e:?}", address, device.config.name),
+        /* We run one or multiple times */
+        for _  in 0..device.parameters.write_retries {
+            /* Wait if needed */
+            tokio::time::sleep(Duration::from_millis(device.parameters.write_wait_before)).await;
+            match write_single_register(stream, request.clone(), proto).await {
+                Ok(_) => {
+                    info!("Written register {} on Device {}", address, device.config.name);
+                    break;
+                },
+                Err(e) => error!("Writing register {} on Device {} of failed: {e:?}", address, device.config.name),
+            }
+            tokio::time::sleep(Duration::from_millis(device.parameters.write_wait_after)).await;
         }
     }
 }
