@@ -85,8 +85,8 @@ pub struct ModbusRegister {
     #[serde(default)]
     pub options: Vec<String>,
 
-    pub min: Option<u32>,
-    pub max: Option<u32>,
+    pub min: Option<i32>,
+    pub max: Option<i32>,
     pub step: Option<i32>,
 }
 
