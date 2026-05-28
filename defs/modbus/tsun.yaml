@@ -286,7 +286,14 @@ templates:
     state_class: measurement
 
   - name: max_usable_capacity
-    value: "capacity * (soc_limit_max - soc_limit_min) / 100"
+    value: "factory_capacity * (soc_limit_max - soc_limit_min) / 100"
     unit_of_measurement: kWh
     device_class: energy
     state_class: measurement
+
+  - name: usable_capacity
+    value: "factory_capacity * (min (soc, soc_limit_max) - min (soc, soc_limit_min)) / 100"
+    unit_of_measurement: kWh
+    device_class: energy
+    state_class: measurement
+
