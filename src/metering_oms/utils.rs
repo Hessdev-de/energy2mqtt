@@ -1,5 +1,5 @@
 use crc16::{State, EN_13757};
-use aes::cipher::{block_padding::NoPadding, generic_array::GenericArray, BlockDecryptMut, KeyIvInit};
+use aes::cipher::{block_padding::NoPadding, BlockModeDecrypt, Iv, Key, KeyIvInit};
 use crate::{config::{ConfigBases, OmsConfig}, get_config_or_panic, CONFIG};
 
 use super::OmsParseError;
@@ -132,8 +132,8 @@ pub fn decrypt_mode5(telegram: &Vec<u8>, access_no: u8, start_encryption: usize,
 
     let intermed = telegram[start_encryption..].to_vec();
     let ciphertext: &[u8] = &intermed.as_slice();
-    let k = GenericArray::clone_from_slice(&key);
-    let i = GenericArray::clone_from_slice(&iv);
-    let decryption = Aes128CbcDec::new(&k.into(), &i.into()).decrypt_padded_vec_mut::<NoPadding>(ciphertext);
+    let k = Key::<Aes128CbcDec>::try_from(key.as_slice()).unwrap();
+    let i = Iv::<Aes128CbcDec>::try_from(iv.as_slice()).unwrap();
+    let decryption = Aes128CbcDec::new(&k, &i).decrypt_padded_vec::<NoPadding>(ciphertext);
     return decryption.unwrap_or_default();
 }
