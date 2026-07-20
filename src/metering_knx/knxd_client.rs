@@ -127,7 +127,18 @@ impl KnxClient {
                 }
                 _ = tokio::time::sleep(Duration::from_millis(100)) => {
                     let mut tunnel_lock = tunnel.lock().await;
-                    tunnel_lock.handle_time_events();
+
+                    // Catch potential panic in knx-rust library when the connect
+                    // handshake times out (e.g. gateway unreachable)
+                    let time_events_result = catch_unwind(AssertUnwindSafe(|| {
+                        tunnel_lock.handle_time_events();
+                    }));
+
+                    if time_events_result.is_err() {
+                        warn!("KNX tunnel initialization panicked (gateway likely unreachable), aborting connect");
+                        return Err(KnxError::ConnectionFailed("KNX tunnel initialization timed out".to_string()));
+                    }
+
                     while let Some(data) = tunnel_lock.get_outbound_data() {
                         socket.send(data).await?;
                     }
@@ -264,7 +275,17 @@ impl KnxClient {
                 }
                 _ = tokio::time::sleep_until(next_timeout) => {
                     let mut tunnel_lock = tunnel.lock().await;
-                    tunnel_lock.handle_time_events();
+
+                    // Catch potential panic in knx-rust library (e.g. a pending
+                    // request timing out while reconnecting internally)
+                    let time_events_result = catch_unwind(AssertUnwindSafe(|| {
+                        tunnel_lock.handle_time_events();
+                    }));
+
+                    if time_events_result.is_err() {
+                        warn!("KNX tunnel handle_time_events panicked, reconnection required");
+                        return Err(KnxError::ConnectionClosed);
+                    }
 
                     // Check if still connected
                     if !tunnel_lock.connected() {
