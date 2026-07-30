@@ -14,6 +14,7 @@ sml = [ "dep:hex" ]
 oms = [ "dep:thiserror", "dep:aes", "dep:cbc", "dep:crc16", "dep:hex" ]
 victron = [ ]
 zenner-datahub = [ "dep:base64", "tokio/process" ]
+store = [ "sqlite" ]
 
 
 default = [ "api", "iec62056", "knx", "modbus", "sml", "oms", "victron", "zenner-datahub" ]
@@ -21,7 +22,7 @@ default = [ "api", "iec62056", "knx", "modbus", "sml", "oms", "victron", "zenner
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
-serde_yml = "0.0.13"
+serde_yml = { package = "yaml_serde", version = "0.10" } # "0.0.13"
 rumqttc = "0.25.1"
 
 uuid = { version = "1.24.0", features = ["v4", "serde"] }
@@ -52,7 +53,7 @@ evalexpr = { version = "13.1.0", optional = true }
 knx-rust = { version = "0.0.1", optional = true }
 
 # OMS dependencies
-aes = { version = "0.9.1", optional = true }
+aes = { version = "0.9.2", optional = true }
 cbc = { version ="0.2.1", features = [ "alloc" ], optional = true }
 crc16 = { version = "0.4.0", optional = true }
 
@@ -60,9 +61,9 @@ crc16 = { version = "0.4.0", optional = true }
 hex = { version = "0.4", optional = true }
 
 # ZENNER Datahub dependencies
-base64 = { version = "0.22.1", optional = true }
+base64 = { version = "0.23.0", optional = true }
 
-
+sqlite = { version = "0.37.0", optional = true }
 
 [dev-dependencies]
 tempfile = "3.27.0"
@@ -71,6 +72,11 @@ actix-rt = "2.8.0"
 [[bin]]
 name = "energy2mqtt"
 path = "src/main.rs"
+
+[[bin]]
+name = "store4mqtt"
+path = "store/main.rs"
+required-features = [ "store" ]
 
 [lib]
 name = "energy2mqtt"
