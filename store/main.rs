@@ -50,7 +50,7 @@ async fn main() -> std::io::Result<()> {
     loop {
         tokio::select! {
             Some(data) = receiver.recv() => {
-                writer.store(data).await;
+                writer.store(data, &client).await;
             }
             event = eloop.poll() => {
                 eventloop(&event, &client, &sender).await;
@@ -60,10 +60,15 @@ async fn main() -> std::io::Result<()> {
 }
 
 
-async fn handle_topics_from_wildcard(topic: &String, p: &rumqttc::Publish, sender: &Sender<WriterData>) {
+async fn handle_topics_from_wildcard(topic: &String, p: &rumqttc::Publish, sender: &Sender<WriterData>, old: Vec<u8>, new: Vec<u8>) {
     // The topic may or may not be a wildcard so we need to check that
     let topic = topic.replace("#", "");
-    let reason = format!("{{\"type\":\"trigger\", \"topic\": \"{}\"}}", p.topic);
+
+    let old_value = String::from_utf8(old).unwrap_or_default();
+    let new_value = String::from_utf8(new).unwrap_or_default();
+
+    let reason = format!("{{\"type\":\"trigger\", \"topic\": \"{}\", \"values\": [\"{}\", \"{}\"]}}",
+                                    p.topic, old_value, new_value);
 
     // Get a list of all topics where we received data from and verify against the list of all requested topics (including wildcard)
     let d = DATA.read().await.clone();
@@ -73,6 +78,7 @@ async fn handle_topics_from_wildcard(topic: &String, p: &rumqttc::Publish, sende
         debug!("Trigger {} called, will write the real topic {} now", p.topic, topic);
 
         if let Some((storage_time, data)) = DATA.read().await.get(&topic) {
+
             if let Some(tc) = CONFIG.read().await.get_topic_config(&topic) {
                 if !verify_timing(&tc.max_variant, &storage_time) {
                     error!("Trigger called for too old data");
@@ -84,7 +90,7 @@ async fn handle_topics_from_wildcard(topic: &String, p: &rumqttc::Publish, sende
                 topic: topic.clone(),
                 data: data.clone(),
                 timeing: SystemTime::UNIX_EPOCH.elapsed().unwrap_or_default().as_secs() as i64,
-                reason: reason.clone()
+                reason: reason.clone(),
             }).await;
         }
     }
@@ -119,17 +125,31 @@ async fn eventloop(event: &Result<Event, ConnectionError>, client: &AsyncClient,
                     topic: p.topic.clone(),
                     data: p.payload.to_vec(),
                     timeing: SystemTime::UNIX_EPOCH.elapsed().unwrap_or_default().as_secs() as i64,
-                    reason: format!("{{\"type\":\"instant\"}}")
+                    reason: format!("{{\"type\":\"instant\"}}"),
                 }).await;
             } else {
-                // Store the value and let the cronpart of the tool do it's job
-                DATA.write().await.insert(p.topic.clone(), (SystemTime::now(), p.payload.to_vec()));
+                // Store the new value and let the cronpart of the tool do it's job also store the old value if set
+                let old = match DATA.write().await.insert(
+                                                    p.topic.clone(),
+                                                    (SystemTime::now(), p.payload.to_vec())
+                                                ) {
+                    Some((_, d)) => d,
+                    None => { Vec::new() }
+                };
                 
                 // Check if this topic is a trigger for something else
                 let base_topics = CONFIG.read().await.trigger_for_topic(&p.topic);
-                for topic in &base_topics {
-                    handle_topics_from_wildcard(topic, &p, sender).await;
+                // if so we want to handle the topics
+                if !base_topics.is_empty() {
+
+                    let new = p.payload.to_vec().clone();
+
+                    // Call the handlers for the wildcards
+                    for topic in &base_topics {
+                        handle_topics_from_wildcard(topic, &p, sender, old.clone(), new.clone()).await;
+                    }
                 }
+
             }
         },
         

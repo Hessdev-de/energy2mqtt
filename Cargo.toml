@@ -17,7 +17,7 @@ zenner-datahub = [ "dep:base64", "tokio/process" ]
 store = [ "sqlite" ]
 
 
-default = [ "api", "iec62056", "knx", "modbus", "sml", "oms", "victron", "zenner-datahub" ]
+default = [ "api", "iec62056", "knx", "modbus", "sml", "oms", "victron", "zenner-datahub", "store" ]
 
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }

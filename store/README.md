@@ -51,6 +51,10 @@ topics:
       - !Trigger triggers/store
       - !Trigger your/application/changed/something
 
+    # publish allows to send a new value whenever a new value was stored
+    # Only data successfully written to the sqlite database will be published
+    publish: true
+
     # optional: German laws you may only use data which has a specific
     # timings so we allow to set the maximum number of seconds which
     # data is allowed to arraive BEFORE or AFTER the correct point in time

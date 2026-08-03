@@ -58,6 +58,7 @@ pub struct Topics {
     pub topic: String,
     pub name_template: String,
     pub store: Vec<ConfigIntervals>,
+    pub publish: Option<bool>,
     pub max_variant: Option<ConfigIntervals>, /* only positive values allowed */
     pub retention: Option<ConfigIntervals>,
     #[serde(default="default_database")]
@@ -178,6 +179,14 @@ impl Configuration {
         }
 
         None
+    }
+
+    pub fn get_publish(&self, needle: &String) -> bool {
+        if let Some(tc) = self.get_topic_config(needle) {
+            tc.publish.unwrap_or(false)
+        } else {
+            false
+        }
     }
 
     pub fn get_timezone(&self) -> String {

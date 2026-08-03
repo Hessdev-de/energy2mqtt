@@ -30,7 +30,7 @@ pub fn get_tables(connection: &Connection) -> Vec<String> {
                             .collect() /* Build a vector of the result */
         },
         Err(e) => {
-            error!("Statement could not be prepared: {:?}", x.err().unwrap());
+            error!("Statement could not be prepared: {:?}", e);
             return Vec::new();
         }
     }

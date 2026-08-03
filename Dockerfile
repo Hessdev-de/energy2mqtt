@@ -10,6 +10,7 @@ ENV BUILD_VERSION=${BUILD_VERSION}
 # Copy our need files and run cargo build and install
 WORKDIR /usr/src/energy2mqtt
 COPY src src
+COPY store store
 COPY Cargo.toml Cargo.lock ./
 RUN cargo install --path . --root /build/usr
 
@@ -18,7 +19,7 @@ COPY defs /build/defs
 COPY ui /build/ui
 
 # create the linux default directories
-RUN mkdir /build/{sys,proc,root,mnt,home}
+RUN mkdir /config/
 
 # In the last step we want to evaluate all files needed
 # by our binary and only copy those. That way we save

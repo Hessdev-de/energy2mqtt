@@ -125,7 +125,7 @@ pub async fn cronjob(sender: Sender<WriterData>) {
                             topic: topic.clone(),
                             data,
                             timeing: ts,
-                            reason: format!("{{\"type\":\"cron\", \"ts\": {} }}", ts)
+                            reason: format!("{{\"type\":\"cron\", \"ts\": {} }}", ts),
                         }).await;
 
                         last_send.insert(topic, ts);
