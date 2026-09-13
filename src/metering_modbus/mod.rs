@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 use crate::config::defaults::Defaults;
 use crate::metering_modbus::registers::ModbusRegister;
-use crate::mqtt::SubscribeData;
+use crate::mqtt::{DeviceOfType, SubscribeData};
 use crate::{config::{ConfigBases, ConfigChange, ConfigOperation, ModbusConfig, ModbusDeviceConfig, ModbusHubConfig, ModbusProtoConfig}, metering_modbus::registers::Register, models::DeviceProtocol, mqtt::{home_assistant::HaSensor, Transmission, publish_protocol_count}, task_monitor::TaskMonitor, CONFIG};
 use log::{debug, error, info, warn};
 use rmodbus::ModbusProto;
@@ -158,7 +158,7 @@ impl ModbusManger
                     devices: {
                         let mut devs: Vec<ModbusDevice> = Vec::new();
                         for dev in config_hub.devices.iter() {
-                            let (regs, manu, model, parameters) = registers::get_registers(&dev.meter);
+                            let (regs, manu, model, devtype, parameters) = registers::get_registers(&dev.meter);
                             let r = regs.clone();
                             let defaults = match &dev.defaults {
                                 Some(defs) => {
@@ -202,7 +202,16 @@ impl ModbusManger
                             }
 
                             let _ = hub_sender.send(Transmission::AutoDiscovery2(discover)).await;
+
+                            /* Expose the device type if needed */
+                            if let Some(dt) = devtype {
+                                let _ = hub_sender.send(Transmission::AddDevice(DeviceOfType {
+                                    device_type: dt.into(),
+                                    base_topic: crate::mqtt::home_assistant::get_state_topic(&DeviceProtocol::ModbusTCP.to_string(), &dev.name),
+                                })).await;
+                            }
                         }
+
                         devs
                     }
                 };
@@ -461,6 +470,8 @@ fn change_register(command: &ModbusMqttCommand, device: &mut ModbusDevice) {
                 command_template: change.command_template.clone(),
                 value_template: change.value_template.clone(),
                 options: change.options.clone(),
+                ignore: change.ignore,
+                only_once: change.only_once,
                 min: None,
                 max: None,
                 step: None,

@@ -230,6 +230,10 @@ pub async fn read_device_registers(
             Register::Modbus(modbus_register) => modbus_register,
         };
 
+        if reg.ignore {
+            continue;
+        }
+
         debug!("Hub {} Device {} Register {} start reading", hub_name, device.config.name, reg.name);
 
         let mut mreq = ModbusRequest::new(device.config.slave_id, proto);
@@ -401,9 +405,28 @@ pub async fn read_device_registers(
                     }
                 }
             },
-            registers::ModbusRegisterFormat::String => {
+            registers::ModbusRegisterFormat::HexString => {
                 let mut data = Vec::new();
                 match mreq.parse_u16(&response, &mut data) {
+                    Err(e) => {
+                        parsed_value = Err(format!("{:?}", e));
+                    }
+                    Ok(()) => {
+                        // Convert u16 registers to a hex string
+                        let mut data_u8 = Vec::new();
+                        for reg in data {
+                            data_u8.push((reg >> 8) as u8 & 0xFF);
+                            data_u8.push(reg as u8 & 0xFF);
+                        }
+
+                        string_value = Some(hex::encode(data_u8));
+                        parsed_value = Ok(0.0); // Placeholder, we use string_value
+                    }
+                }
+            },
+            registers::ModbusRegisterFormat::String => {
+                let mut data = Vec::new();
+                 match mreq.parse_u16(&response, &mut data) {
                     Err(e) => {
                         parsed_value = Err(format!("{:?}", e));
                     }

@@ -32,8 +32,8 @@ pub fn get_state_topic(proto: &String, device: &String) -> String {
     format!("energy2mqtt/devs/{proto}/{device}")
 }
 
-pub fn get_command_topic(proto: &String, instance: &String, device: &String) -> String {
-    format!("energy2mqtt/cmds/{proto}/{instance}/{device}")
+pub fn get_command_topic(proto: &String, device: &String, command: &String) -> String {
+    format!("energy2mqtt/cmds/{proto}/{device}/{command}")
 }
 
 pub fn get_dev_cmd_proto_from_topic(topic: &String) -> (String, String, String) {

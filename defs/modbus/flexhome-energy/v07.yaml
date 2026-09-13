@@ -1,0 +1,436 @@
+manufacturer: FlexHome Energy
+model: Comm-Modbus-RTU v0.7
+
+# TSUN batteries require a bit of time between the frames
+parameters:
+  write_retries: 3
+  write_wait_before: 100
+  write_wait_after: 10
+
+registers:
+
+#######################################################################################
+#
+# Device Description – Input Register 0 to 99
+#
+  - name: vendor
+    input_type: Input
+    register: 0
+    length: 10
+    format: String
+    description: Device Vendor
+
+  - name: model
+    input_type: Input
+    register: 10
+    length: 10
+    format: String
+    description: Device Model
+ 
+  - name: serialnumber
+    input_type: Input
+    register: 20
+    length: 10
+    format: String
+    description: Device Serial
+ 
+  - name: version
+    input_type: Input
+    register: 30
+    length: 10
+    format: String
+    description: Device version
+
+#######################################################################################
+#
+# Device Checksum – Input Register 100 to 199
+#
+  - name: checksum
+    input_type: Input
+    register: 100
+    length: 16
+    format: HexString
+    description: Firmware checksum
+
+#######################################################################################
+#
+# Battery Operation Mode – Input Register 200
+#
+  - name: sys_operating_mode
+    input_type: Input
+    register: 200
+    length: 1
+    format: UInt16
+    platform: sensor
+    description: Operational Mode
+    value_template: "{% if ## == 0 %}Undefined{% elif ## == 1 %}Init{% elif ## == 2 %}Idle{% elif ## == 3 %}Control{% elif ## == 4 %}Error{% else %}Unknown{% endif %}"
+
+#######################################################################################
+#
+# Grid Parameters - Input Reg. 300 to 399
+#
+  - name: grid_voltage
+    input_type: Input
+    register: 300
+    length: 1
+    format: UInt16
+    scaler: 0.1
+    platform: sensor
+    description: Grid Voltage
+
+  - name: grid_current
+    input_type: Input
+    register: 301
+    length: 1
+    format: Int16
+    scaler: 0.001
+    platform: sensor
+    description: Grid Current
+    device_class: current
+    unit_of_measurement: "A"
+
+  - name: grid_power
+    input_type: Input
+    register: 302
+    length: 1
+    format: Int16
+    scaler: 0.1
+    platform: sensor
+    description: Grid Voltage
+    device_class: voltage
+    unit_of_measurement: "V"
+
+  - name: grid_frequency
+    input_type: Input
+    register: 303
+    length: 1
+    format: UInt16
+    scaler: 0.01
+    platform: sensor
+    description: Grid Voltage
+    device_class: frequency
+    unit_of_measurement: Hz
+
+  - name: grid_power_factory
+    input_type: Input
+    register: 304
+    length: 1
+    format: Int16
+    scaler: 0.1
+    platform: sensor
+    description: Grid powerfactor
+
+  - name: grid_power_limit_charging
+    input_type: Input
+    register: 305
+    length: 1
+    format: UInt16
+    scaler: 0.1
+    platform: sensor
+    description: Power limit for charging
+    device_class: power
+    unit_of_measurement: "W"
+
+  - name: grid_power_limit_discharging
+    input_type: Input
+    register: 306
+    length: 1
+    format: UInt16
+    scaler: 0.1
+    platform: sensor
+    description: Power limit for discharging
+    device_class: power
+    unit_of_measurement: "W"
+
+  #####################################################################################
+  # Inverter register (even if in Grid Block)
+  - name: temperature
+    input_type: Input
+    register: 307
+    length: 1
+    format: UInt16
+    scaler: 0.1
+    platform: sensor
+    description: Grid Voltage
+    device_class: temperature
+    unit_of_measurement: "°C"
+
+#######################################################################################
+#
+# Battery parameters – Input Reg. 400 – 499
+#
+  - name: battery_voltage
+    input_type: Input
+    register: 400
+    length: 1
+    format: UInt16
+    scaler: 0.01
+    description: Battery Voltage
+    device_class: voltage
+    unit_of_measurement: "V"
+
+  - name: battery_current
+    input_type: Input
+    register: 401
+    length: 1
+    format: Int16
+    scaler: -0.01
+    description: Battery Current
+    device_class: current
+    unit_of_measurement: "A"
+
+  - name: battery_power
+    input_type: Input
+    register: 402
+    length: 1
+    format: Int16
+    scaler: -1.0
+    description: Power flowing of the battery module
+    device_class: power
+    unit_of_measurement: "W"
+
+  - name: soc
+    input_type: Input
+    register: 403
+    length: 1
+    format: UInt16
+    scaler: 0.1
+    description: State of Charge
+    unit_of_measurement: "%"
+    state_class: measurement
+
+  - name: soh
+    input_type: Input
+    register: 404
+    length: 1
+    format: UInt16
+    scaler: 0.1
+    description: State of Health
+    unit_of_measurement: "%"
+    state_class: measurement
+
+  - name: factory_capacity_ah
+    input_type: Input
+    register: 405
+    length: 1
+    format: UInt16
+    scaler: 1
+    description: Factory Capacity of the battery
+    unit_of_measurement: Ah
+    state_class: measurement
+
+  - name: capacity_ah
+    input_type: Input
+    register: 406
+    length: 1
+    format: UInt16
+    scaler: 1
+    description: Remaining Capacity of the battery (wear included)
+    unit_of_measurement: Ah
+    state_class: measurement
+
+  - name: battery_temperature
+    input_type: Input
+    register: 407
+    length: 1
+    format: UInt16
+    scaler: 0.1
+    description: Capacity of pack 1
+
+  - name: soc_limit_max
+    input_type: Input
+    register: 408
+    length: 1
+    format: UInt16
+    scaler: 0.1
+    description: Battery upper SOC limit
+    unit_of_measurement: "%"
+    state_class: measurement
+
+  - name: soc_limit_min
+    input_type: Input
+    register: 409
+    length: 1
+    format: UInt16
+    scaler: 0.1
+    description: Battery lower SOC limit
+    unit_of_measurement: "%"
+    state_class: measurement
+
+  - name: battery_cell_max
+    input_type: Input
+    register: 410
+    length: 1
+    format: UInt16
+    scaler: 0.001
+    description: Highest cell voltage
+    unit_of_measurement: "V"
+    state_class: measurement
+
+  - name: battery_cell_min
+    input_type: Input
+    register: 411
+    length: 1
+    format: UInt16
+    scaler: 0.001
+    description: Lowest cell voltage
+    unit_of_measurement: "V"
+    state_class: measurement
+
+#######################################################################################
+#
+# Holding registers
+# 
+
+  - name: operation_mode
+    input_type: Holding
+    register: 1000
+    length: 1
+    format: UInt16
+    platform: sensor
+    description: "Operational Mode"
+    value_template: "{% if ## == 1 %}Init{% elif ## == 2 %}Idle{% elif ## == 3 %}Control{% else %}Unknown{% endif %}"
+
+  - name: dispatch_power
+    input_type: Holding
+    register: 1100
+    length: 1
+    scaler: -1.0
+    format: Int16
+    platform: number
+    description: Power
+    device_class: power
+    unit_of_measurement: W
+    min: -2000
+    max: 2000
+
+  - name: power_factor
+    input_type: Holding
+    register: 1101
+    length: 1
+    scaler: 0.1
+    format: Int16
+    description: Power factor
+    unit_of_measurement: "%"
+    min: -80
+    max: 80
+    ignore: True
+
+  - name: power_limit_charging
+    input_type: Holding
+    register: 1102
+    length: 1
+    scaler: 0.1
+    format: UInt16
+    description: Power limit while charging
+    unit_of_measurement: "%"
+    min: -80
+    max: 80
+    ignore: True
+
+  - name: power_limit_discharging
+    input_type: Holding
+    register: 1103
+    length: 1
+    scaler: 0.1
+    format: UInt16
+    description: Power limit while discharging
+    unit_of_measurement: "%"
+    min: -80
+    max: 80
+    ignore: True
+
+  - name: modbus_address
+    input_type: Holding
+    register: 1300
+    length: 1
+    scaler: 1
+    format: UInt16
+    description: The modbus Address
+    min: 1
+    max: 247
+    ignore: True
+
+  - name: modbus_baudrate
+    input_type: Holding
+    register: 1301
+    length: 1
+    scaler: 1
+    format: UInt16
+    description: The baudrate used by modbus
+    min: 7
+    max: 13
+    ignore: True
+
+  - name: modbus_parity
+    input_type: Holding
+    register: 1302
+    length: 1
+    scaler: 1
+    format: UInt16
+    description: The parity used by modbus
+    min: 4
+    max: 6
+    ignore: True
+
+  - name: modbus_stop_bit
+    input_type: Holding
+    register: 1303
+    length: 1
+    scaler: 1
+    format: UInt16
+    description: The number of stopbits used by modbus
+    min: 3
+    max: 4
+    ignore: True
+
+  - name: soc_max
+    input_type: Holding
+    register: 1400
+    length: 1
+    format: UInt16
+    scaler: 0.1
+    description: Setpoint for the upper SOC limit
+    unit_of_measurement: "%"
+    state_class: measurement
+    ignore: True
+
+  - name: soc_min
+    input_type: Holding
+    register: 1401
+    length: 1
+    format: UInt16
+    scaler: 0.1
+    description: Setpoint for the lower SOC limit
+    unit_of_measurement: "%"
+    state_class: measurement
+    ignore: True
+
+#######################################################################################
+#
+# Templates to get the real and useable capacity for the tsun batteries
+#
+templates:
+  - name: factory_capacity
+    value: "factory_capacity_ah * battery_voltage / 1000"
+    unit_of_measurement: kWh
+    device_class: energy
+    state_class: measurement
+
+  - name: capacity
+    value: "capacity_ah * battery_voltage * (soc / 100) / 1000"
+    unit_of_measurement: kWh
+    device_class: energy
+    state_class: measurement
+
+  - name: max_usable_capacity
+    value: "capacity * (soc_limit_max - soc_limit_min) / 100"
+    unit_of_measurement: kWh
+    device_class: energy
+    state_class: measurement
+
+  - name: usable_capacity
+    value: "capacity * (min (soc, soc_limit_max) - min (soc, soc_limit_min)) / 100"
+    unit_of_measurement: kWh
+    device_class: energy
+    state_class: measurement

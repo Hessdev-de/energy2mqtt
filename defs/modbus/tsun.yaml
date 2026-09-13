@@ -1,5 +1,6 @@
 manufacturer: TSUN
 model: Micro Battery
+device_type: battery
 
 # TSUN batteries require a bit of time between the frames
 parameters:
@@ -267,7 +268,6 @@ registers:
     format: UInt16
     scaler: 1.0
     description: Set the desired BMS connection state
-
 
 #######################################################################################
 # Templates to get the real and useable capacity for the tsun batteries

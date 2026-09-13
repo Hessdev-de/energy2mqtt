@@ -135,6 +135,55 @@ pub struct TaskCrashData {
     pub restart_count: u32,
 }
 
+pub enum DeviceTypes {
+    /// A battery device allows to charge or discharge a battery
+    ///
+    /// Battery devices may hide an inverter or not.
+    ///
+    /// # Commands
+    ///
+    /// - `dispatch_power`: Set the value of the charge or discharge power
+    ///
+    Battery,
+    /// A meter can be anything which counts kWh
+    ///
+    /// A different system should now how the meters are connected.
+    Meter,
+    /// A wallbox allows to charge electrical cars
+    ///
+    /// - `allow_charging`, boolean to enable the charging of the connected car
+    /// - `dispatch_power`, the W to charge with (if positive), or use V2G (if negative). The implementation will round internal.
+    Wallbox,
+    Unknown,
+}
+
+impl Into<String> for DeviceTypes {
+    fn into(self) -> String {
+        match self {
+            DeviceTypes::Battery => "battery",
+            DeviceTypes::Meter => "meter",
+            DeviceTypes::Wallbox => "wallbox",
+            DeviceTypes::Unknown => "unknown",
+        }.to_string()
+    }
+}
+
+impl From<String> for DeviceTypes {
+    fn from(value: String) -> Self {
+        match value.as_str() {
+            "battery" => DeviceTypes::Battery,
+            "meter" => DeviceTypes::Meter,
+            "wallbox" => DeviceTypes::Wallbox,
+            _ => DeviceTypes::Unknown,
+        }
+    }
+}
+
+pub struct DeviceOfType {
+    pub device_type: DeviceTypes,
+    pub base_topic: String,
+}
+
 pub enum Transmission {
     Metering(MeteringData),
     AutoDiscovery(HaDiscover),
@@ -143,6 +192,7 @@ pub enum Transmission {
     Subscribe(SubscribeData),
     Publish(PublishData),
     TaskCrash(TaskCrashData),
+    AddDevice(DeviceOfType)
 }
 
 pub struct MqttManager {
@@ -443,6 +493,8 @@ impl MqttManager {
 
     pub async fn start_thread(&mut self, broadcast: tokio::sync::broadcast::Sender<String>) {
        
+        let mut device_list: HashMap<String, Vec<String>> = HashMap::new();
+
         // Handle all the incomming metering stuff
         while !self.exit_thread {
             let option = self.rx.recv().await;
@@ -621,6 +673,28 @@ impl MqttManager {
                         QoS::AtLeastOnce,
                         false,
                         crash_payload.to_string()
+                    ).await;
+                },
+                Transmission::AddDevice(device_of_type) => {
+                    let devtype: String = device_of_type.device_type.into();
+                    let mut current = match device_list.get(&devtype) {
+                        Some(c) => c.clone(),
+                        None => Vec::new(),
+                    };
+
+                    if !current.contains(&device_of_type.base_topic) {
+                        current.push(device_of_type.base_topic);
+                    }
+
+                    let topic = format!("energy2mqtt/devicetypes/{devtype}");
+                    let mqtt_data = serde_json::to_string(&current).unwrap_or_default();
+                    device_list.insert(devtype, current);
+
+                    let _ = self.client.publish(
+                        topic,
+                        QoS::AtLeastOnce,
+                        true,
+                        mqtt_data
                     ).await;
                 },
             };
