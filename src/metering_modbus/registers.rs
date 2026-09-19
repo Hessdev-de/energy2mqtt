@@ -8,7 +8,8 @@ use serde_yml;
 pub enum ModbusRegisterType {
     Holding,
     Input,
-    Coil
+    Coil,
+    Discrete,
 }
 #[derive(Clone, PartialEq, Deserialize)]
 pub enum ModbusRegisterFormat {
@@ -22,6 +23,7 @@ pub enum ModbusRegisterFormat {
     /// SunSpec scale factor - int16 used as power of 10 exponent
     SunSSF,
     Coil,
+    Bool, // Same as Coil, both are read as boolean
 }
 
 #[derive(Clone, PartialEq, Deserialize)]

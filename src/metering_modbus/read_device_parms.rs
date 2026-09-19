@@ -2,7 +2,7 @@
 use evalexpr::{ContextWithMutableVariables, DefaultNumericTypes, HashMapContext};
 use log::{debug, error, info, warn};
 use rmodbus::{client::ModbusRequest, guess_response_frame_len, ModbusProto};
-use crate::{config::ModbusHubConfig, metering_modbus::{HubConnectionState, ModbusDevice, ModbusError, ModbusHub, registers, set_device_parms::write_register, utils::{self, round_number}}, mqtt::{PublishData, Transmission}};
+use crate::{metering_modbus::{HubConnectionState, ModbusDevice, ModbusError, registers, set_device_parms::write_register, utils::{self, round_number}}, mqtt::{PublishData, Transmission}};
 use serde::Serialize;
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::TcpStream, sync::mpsc::Sender, time::timeout};
 use std::collections::HashMap;
@@ -248,8 +248,12 @@ pub async fn read_device_registers(
             }
             registers::ModbusRegisterType::Coil => {
                 mreq.generate_get_coils(reg.register, reg.length, &mut request).unwrap();
-            }
+            },
+            registers::ModbusRegisterType::Discrete => {
+                mreq.generate_get_discretes(reg.register, reg.length, &mut request).unwrap()
+            },
         }
+
 
         // Write request with timeout
         match timeout(read_timeout, stream.write_all(&request)).await {
@@ -316,7 +320,7 @@ pub async fn read_device_registers(
         raw_data.registers.push( E2MRegister { address: reg.register as i32, data: response.clone() });
 
         match reg.format {
-            registers::ModbusRegisterFormat::Coil => {
+            registers::ModbusRegisterFormat::Bool | registers::ModbusRegisterFormat::Coil => {
                 let mut data = Vec::new();
                 match mreq.parse_bool(&response, &mut data) {
                     Ok(()) => {
@@ -329,7 +333,7 @@ pub async fn read_device_registers(
                         parsed_value = Err(format!("{:?}", e));
                     },
                 }
-            }
+            },
             registers::ModbusRegisterFormat::Int32 => {
                 let mut data = Vec::new();
                 match mreq.parse_i16(&response, &mut data) {

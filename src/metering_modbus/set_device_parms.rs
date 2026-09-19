@@ -69,6 +69,10 @@ pub async fn set(
                         error!("Trying to set input register on hub {} device {} address {address}", hub_name, device.config.name);
                         continue;
                     }
+                    ModbusRegisterType::Discrete => {
+                        error!("Trying to set discrete register on hub {} device {} address {address}", hub_name, device.config.name);
+                        continue;
+                    },
                 } {
                     error!("Can not build request for {address} on {}: {e:?}", device.config.name);
                     continue;
@@ -114,6 +118,10 @@ pub async fn write_register(device: &ModbusDevice, proto: ModbusProto,  conn_sta
             ModbusRegisterType::Coil => mreq.generate_set_coil(address, value[0], &mut request),
             ModbusRegisterType::Input => {
                 error!("Trying to set input register on device {} address {address}", device.config.name);
+                return;
+            }
+            ModbusRegisterType::Discrete => {
+                error!("Trying to set discrete register on device {} address {address}", device.config.name);
                 return;
             }
         } {
