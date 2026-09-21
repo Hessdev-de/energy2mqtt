@@ -423,7 +423,7 @@ fn change_register(command: &ModbusMqttCommand, device: &mut ModbusDevice) {
 
             /* Our device may be bogus if no registers are specified */
             if device.registers.len() > 0 {
-                for index in 0..=device.registers.len() {
+                for index in 0..device.registers.len() {
                     let dregister = &device.registers[index];
                     if let Register::Modbus(register) = &dregister {
                         if register.input_type == change.input_type &&
