@@ -1,4 +1,4 @@
-use std::fs::File;
+use std::{fs::File, fmt::Display};
 use std::io::prelude::*;
 use log::{error, info};
 use serde::Deserialize;
@@ -11,6 +11,18 @@ pub enum ModbusRegisterType {
     Coil,
     Discrete,
 }
+
+impl Display for ModbusRegisterType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            ModbusRegisterType::Holding => "Holding Register",
+            ModbusRegisterType::Input => "Input Register",
+            ModbusRegisterType::Coil => "Coil",
+            ModbusRegisterType::Discrete => "DiscreteInput",
+        })
+    }
+}
+
 #[derive(Clone, PartialEq, Deserialize)]
 pub enum ModbusRegisterFormat {
     Int16,

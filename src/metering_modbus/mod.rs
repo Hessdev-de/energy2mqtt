@@ -100,6 +100,7 @@ struct ModbusMqttCommand {
     /* set_modbus uses those */
     registers: Option<HashMap<String, Vec<u8>>>,
     changes: Option<Vec<ModbusRegister>>,
+    insert_only: Option<bool>,
 }
 
 #[derive(Clone)]
@@ -257,17 +258,17 @@ impl ModbusManger
 
                         loop {
                             tokio::select! {
-                                /* Now sleep for one tick of hub_inveral_sec */
+                                // Now sleep for one tick of hub_inveral_sec
                                 _ =  tokio::time::sleep(hub_delay) => {
-                                    /* Increment wait counters for all devices */
+                                    // Increment wait counters for all devices
                                     for device in hub.devices.iter_mut() {
                                         device.cur_waits += 1;
                                     }
                                 },
-                                /* We got a write command, we may miss a beat but that is ok */
+                                // We got a write command, we may miss a beat but that is ok
                                 Some((topic, payload)) = write_receiver.recv() => {
                                     if topic.starts_with("energy2mqtt/set/modbus") {
-                                        /* Check which device we need to call out to */
+                                        // Check which device we need to call out to
                                         let command: ModbusMqttCommand = match serde_json::from_slice(payload.as_bytes()) {
                                             Ok(d) => d,
                                             Err(e) => {
@@ -276,7 +277,7 @@ impl ModbusManger
                                             }
                                         };
 
-                                        /* Find the device to use */
+                                        // Find the device to use
                                         for mut device in hub.devices.iter_mut() {
                                             if device.config.name != command.device {
                                                     continue;
@@ -285,7 +286,7 @@ impl ModbusManger
                                             match command.function.as_str() {
                                                 "modbus_set" => {
                                                     if let Some(registers) = &command.registers {
-                                                        /* We found our device */
+                                                        // We found our device
                                                         set_device_parms::set(&socket_addr, &hub.config.name, registers,
                                                                                 device, proto, &mut conn_state).await;
                                                         debug!("Hub {} Device {} will now be read because the configuration changed",
@@ -296,7 +297,7 @@ impl ModbusManger
                                                     }
                                                 },
                                                 "registers_change" => {
-                                                    change_register(&command, &mut device);
+                                                    change_register(&command, &mut device, command.insert_only.unwrap_or(false));
                                                 }
                                                 _ => {
                                                     error!("Function {} is unknown for {}", command.function, topic);
@@ -304,8 +305,7 @@ impl ModbusManger
                                             }
                                         }
                                     } else if topic.starts_with("energy2mqtt/cmds/modbus") {
-                                        //"energy2mqtt/cmds/modbus/{}/{}/{}"
-                                        /* Get the correct device to run */
+                                        // Get the correct device to run, the HUB name is ignored
                                         let (topic, register) = topic.rsplit_once('/').unwrap();
                                         let (_, name) = topic.rsplit_once('/').unwrap();
 
@@ -414,8 +414,7 @@ impl ModbusManger
     }
 }
 
-fn change_register(command: &ModbusMqttCommand, device: &mut ModbusDevice) {
-
+fn change_register(command: &ModbusMqttCommand, device: &mut ModbusDevice, insert_only: bool) {
     if let Some(changes) = &command.changes {
         for change in changes {
             /* Check if we needs to override or add a new register */
@@ -426,8 +425,19 @@ fn change_register(command: &ModbusMqttCommand, device: &mut ModbusDevice) {
                 for index in 0..device.registers.len() {
                     let dregister = &device.registers[index];
                     if let Register::Modbus(register) = &dregister {
+
                         if register.input_type == change.input_type &&
                             register.register == change.register {
+
+                                // We already know this register, verify if we should replace ist
+                                if insert_only {
+                                    info!("Register information for {} @ {} already known as \"{}\", not updating",
+                                                change.input_type, change.register, register.name);
+                                    found = true;
+                                    break;
+                                }
+
+                                info!("Updating register information of {} @ {}", change.input_type, change.register);
                                 /* We already now the register so just update all non optional paramters*/
                                 let mut cloned_register = register.clone();
                                 cloned_register.name = change.name.clone();
@@ -447,11 +457,11 @@ fn change_register(command: &ModbusMqttCommand, device: &mut ModbusDevice) {
 
             /* Already set the register */
             if found {
-                break;
+                continue;
             }
 
             /* We need to create a new one */
-            info!("Adding a new register definition for {} @ {}", change.name, change.register);
+            info!("Adding a new register definition for {} @ {} named \"{}\"", change.input_type, change.register, change.name);
             device.registers.push(Register::Modbus(ModbusRegister {
                 name: change.name.clone(),
                 input_type: change.input_type.clone(),
