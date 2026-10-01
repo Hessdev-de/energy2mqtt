@@ -319,6 +319,13 @@ pub async fn read_device_registers(
 
         raw_data.registers.push( E2MRegister { address: reg.register as i32, data: response.clone() });
 
+        // Outside callers may want to get raw data without populating our internal messages
+        // with useless information. That can happen if someone wants to get debug messages from
+        // a battery.
+        if reg.name.stats_with("_") {
+            continue;
+        }
+
         match reg.format {
             registers::ModbusRegisterFormat::Bool | registers::ModbusRegisterFormat::Coil => {
                 let mut data = Vec::new();
