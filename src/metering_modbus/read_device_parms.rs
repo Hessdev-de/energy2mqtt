@@ -322,7 +322,7 @@ pub async fn read_device_registers(
         // Outside callers may want to get raw data without populating our internal messages
         // with useless information. That can happen if someone wants to get debug messages from
         // a battery.
-        if reg.name.stats_with("_") {
+        if reg.name.starts_with("_") {
             continue;
         }
 
