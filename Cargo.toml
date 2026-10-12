@@ -9,65 +9,66 @@ description = "Export your energy data to MQTT"
 api = [ "dep:thiserror", "dep:actix-web", "dep:actix-files", "dep:actix-ws", "dep:utoipa", "dep:utoipa-swagger-ui" ]
 iec62056 = [ "dep:thiserror" ]
 knx = [ "dep:knx-rust", "dep:thiserror" ]
-modbus = [ "dep:rmodbus", "dep:evalexpr" ]
+modbus = [ "dep:rmodbus", "dep:evalexpr", "dep:hex" ]
 sml = [ "dep:hex" ]
 oms = [ "dep:thiserror", "dep:aes", "dep:cbc", "dep:crc16", "dep:hex" ]
 victron = [ ]
 zenner-datahub = [ "dep:base64", "tokio/process" ]
-store = [ "sqlite" ]
-
+store = [ "sqlite", "dep:evalexpr" ]
 
 default = [ "api", "iec62056", "knx", "modbus", "sml", "oms", "victron", "zenner-datahub", "store" ]
 
-[dependencies]
-serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.151"
-serde_yml = { package = "yaml_serde", version = "0.10" } # "0.0.13"
-rumqttc = "0.25.1"
 
-uuid = { version = "1.24.0", features = ["v4", "serde"] }
-chrono = { version = "0.4.45", features = [ "serde" ] }
-tokio = { version = "1.53.0", features = [ "sync", "rt-multi-thread", "macros" ] }
-log = "0.4.33"
-env_logger = "0.11.11"
-futures-util = "0.3.33"
-lazy_static = "1.3"
-walkdir = "2.5.0"
-regex = "1.12.2"
+[dependencies]
+serde = { version = "1.0.229", features = [ "derive" ] }
+serde_json = { version = "1.0.154", features = [ "alloc" ], default-features = false }
+serde_yml = { package = "yaml_serde", version = "0.10.7", features = [ ], default-features = false }
+rumqttc = { version = "0.25.1", features = [ ], default-features = false }
+
+uuid = { version = "1.28.0", features = ["v4", "serde"], default-features = false  }
+chrono = { version = "0.4.45", features = [ "serde", "clock" ], default-features = false  }
+tokio = { version = "1.53.2", features = [ "sync", "rt-multi-thread", "macros" ], default-features = false  }
+log = { version = "0.4.34", features = [ ], default-features = false }
+env_logger = { version = "0.11.11", features = [ ], default-features = false }
+futures-util = { version = "0.3.34", features = [ ], default-features = false }
+lazy_static = { version = "1.5.1", features = [ ], default-features = false }
+walkdir = { version = "2.5.0", features = [ ], default-features = false }
+regex = { version= "1.12.2", features = [ ], default-features = false }
 
 # Common dependencies
-thiserror = { version = "2.0.19", optional = true }
+thiserror = { version = "2.0.21", features = [ ], default-features = false, optional = true }
 
 # API dependencies
-actix-web = { version = "4.14.0", optional = true }
-actix-files = { version = "0.6.10", optional = true }
-actix-ws = { version = "0.4.0", optional = true }
-utoipa = { version = "5.5.0", optional = true }
-utoipa-swagger-ui = { version = "9", features = ["actix-web"], optional = true }
+actix-web = { version = "4.15.0", features = [ ], default-features = false, optional = true }
+actix-files = { version = "0.7.0", features = [ ], default-features = false, optional = true }
+actix-ws = { version = "0.4.0", features = [ ], default-features = false, optional = true }
+utoipa = { version = "6.0.0", features = [ ], default-features = false, optional = true }
+utoipa-swagger-ui = { version = "10.0.1", features = ["actix-web"], default-features = false, optional = true }
 
 # Modbus dependencies
-rmodbus = { version = "0.12.2", optional = true }
-evalexpr = { version = "13.1.0", optional = true }
+rmodbus = { version = "0.12.2", features = [ "std" ], default-features = false, optional = true }
+evalexpr = { version = "13.1.0", features = [ ], default-features = false, optional = true }
 
 # KNX dependencies
-knx-rust = { version = "0.0.1", optional = true }
+knx-rust = { version = "0.0.1", features = [ ], default-features = false, optional = true }
 
 # OMS dependencies
-aes = { version = "0.9.2", optional = true }
+aes = { version = "0.9.3", features = [ ], optional = true }
 cbc = { version ="0.2.1", features = [ "alloc" ], optional = true }
-crc16 = { version = "0.4.0", optional = true }
+crc16 = { version = "0.4.0", features = [ ], default-features = false, optional = true }
 
 # OMS and SML
 hex = { version = "0.4", optional = true }
 
 # ZENNER Datahub dependencies
-base64 = { version = "0.23.0", optional = true }
+base64 = { version = "0.23.1", features = [ "alloc" ], default-features = false, optional = true }
 
-sqlite = { version = "0.37.0", optional = true }
+# We can not disable features otherwise it will not build, because sqlite3_sys requires "bundled"
+sqlite = { version = "0.37.4", optional = true }
 
 [dev-dependencies]
 tempfile = "3.27.0"
-actix-rt = "2.8.0"
+actix-rt = "2.15.0"
 
 [[bin]]
 name = "energy2mqtt"

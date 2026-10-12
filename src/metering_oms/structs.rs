@@ -1,5 +1,7 @@
+#[allow(unused)]
 struct OmsSecurityMode0 { mode: u8 }
 
+#[allow(unused)]
 struct OmsSecurityMode5 {
     bidirectional_communication: bool,
     accessibility: bool,
@@ -11,6 +13,7 @@ struct OmsSecurityMode5 {
     hop_counter: u16,
 }
 
+#[allow(unused)]
 struct OmsSecurityMode7 {
     content_of_message: u16,
     mode: u16,
@@ -21,6 +24,7 @@ struct OmsSecurityMode7 {
     key_id: u8
 }
 
+#[allow(unused)]
 enum OmsModeData {
     Mode0(OmsSecurityMode0),
     Mode5(OmsSecurityMode5),

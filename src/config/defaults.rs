@@ -33,7 +33,7 @@ impl Defaults {
                 }
             },
             Err(e) => {
-                error!("Default file {file} could not be parsed");
+                error!("Default file {file} could not be parsed: {e:?}");
                 return Defaults::default();
             }
         };

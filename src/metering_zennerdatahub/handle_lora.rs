@@ -62,7 +62,6 @@ impl Default for LoRaWANDef {
 
 fn def_state_class() -> String { "measurement".to_string() }
 fn def_platform() -> String { "sensor".to_string() }
-fn def_bool_false() -> bool { false }
 fn def_bool_true() -> bool { true }
 
 /* Hint: that may also work for NB-IoT later */
@@ -71,6 +70,7 @@ struct ComplexPayload {
     data: String,
     port: Option<u64>,
     imme: Option<bool>,
+    #[allow(unused)]
     confirmed: Option<bool>,
 }
 
@@ -760,8 +760,8 @@ pub async fn handle_incoming_lora(data: &mut Arc<Mutex<ZennerDatahubData>>, inst
 
     let def = &d.known_devices[&dev_eui];
 
-    if let Some(gen) = json.meta.generated {
-        if gen == true {
+    if let Some(generated) = json.meta.generated {
+        if generated == true {
             if let Some(opt) = &def.options {
                 if opt.ignore_generated_values {
                     info!("ignoring generated value of {dev_eui}");
@@ -973,6 +973,8 @@ pub async fn handle_downlink_lora_complex(payload: &PayLoadMessage, publish_c: &
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn def_bool_false() -> bool { false }
 
     #[test]
     fn test_lorawan_def_default() {

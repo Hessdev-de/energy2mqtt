@@ -4,3 +4,7 @@
 e2m.yaml
 backup.yaml
 discovered_devices.yaml
+/debian/*.substvars
+/debian/energy2mqtt
+/debian/files
+/logs

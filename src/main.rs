@@ -53,13 +53,15 @@ async fn main() -> std::io::Result<()> {
         mqtt.start_thread(bsender).await;
     }));
 
-    // Start Modbus if needed
-    let mr_sender = device_manager.get_sender_instance();
-    let mut modbus = ModbusManger::new(mr_sender);
-    threads.push(tokio::spawn(async move {
-            modbus.start_thread().await;
-    }));
-
+    #[cfg(feature = "modbus")]
+    {
+        // Start Modbus if needed
+        let mr_sender = device_manager.get_sender_instance();
+        let mut modbus = ModbusManger::new(mr_sender);
+        threads.push(tokio::spawn(async move {
+                modbus.start_thread().await;
+        }));
+    }
     // Start OMS manager
     #[cfg(feature = "oms")]
     {

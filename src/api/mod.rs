@@ -6,7 +6,7 @@ use log::{error, info};
 use serde::{Serialize, Deserialize};
 use utoipa_swagger_ui::SwaggerUi;
 use std::time::{SystemTime, UNIX_EPOCH, Duration};
-use utoipa::{OpenApi, ToSchema, openapi};
+use utoipa::{OpenApi, ToSchema};
 
 use crate::{config::{ConfigBases, ModbusHubConfig, KnxAdapterConfig, KnxMeterConfig, KnxSwitchConfig, MqttConfig, ConfigHolder, ConfigStatus, ZennerDatahubConfig, OmsConfig, VictronConfig}, get_config_or_panic, CONFIG};
 use crate::mqtt::{get_app_status, MqttConnectionStatus, LIVE_EVENTS};

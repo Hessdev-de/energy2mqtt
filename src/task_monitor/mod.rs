@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Instant};
 use log::{error, info, warn};
 use tokio::sync::mpsc::Sender;
 use tokio::sync::RwLock;
@@ -305,6 +305,7 @@ impl TaskMonitor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     #[tokio::test]
     async fn test_spawn_and_check() {

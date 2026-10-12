@@ -39,7 +39,6 @@ pub mod discovered_devices;
 pub use models::{Device, DeviceType, DeviceStatus};
 pub use device_manager::DeviceManager;
 pub use mqtt::{CALLBACKS, MeteringData};
-pub use metering_modbus::ModbusManger;
 pub use config::CONFIG;
 pub use storage::StoredData;
 pub use task_monitor::{TaskMonitor, TaskInfo, TaskStatus};
@@ -47,6 +46,8 @@ pub use discovered_devices::{init_discovered_devices, get_discovered_devices, Di
 
 #[cfg(feature = "api")]
 pub use api::ApiManager;
+#[cfg(feature = "modbus")]
+pub use metering_modbus::ModbusManger;
 #[cfg(feature = "oms")]
 pub use metering_oms::OmsManager;
 #[cfg(feature = "iec62056")]
