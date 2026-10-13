@@ -1,5 +1,6 @@
-use std::{collections::{HashMap, HashSet}, time::{Duration, SystemTime}};
-use log::{debug, error, info};
+use std::{collections::{HashMap, HashSet}, time::{Duration, SystemTime}, io::Write};
+use colored::Colorize;
+use log::{Level, debug, error, info};
 use rumqttc::{AsyncClient, ConnectionError, Event, MqttOptions, Packet};
 use tokio::sync::{RwLock, mpsc::Sender};
 
@@ -17,7 +18,23 @@ lazy_static::lazy_static! {
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
 
-    env_logger::init();
+    let default_filter =  std::env::var("RUST_LOG").unwrap_or("info".to_string());
+    let mut builder = env_logger::Builder::from_env(env_logger::Env::new().default_filter_or(default_filter));
+
+    builder.format(|buf, rec| {
+                    let ts = buf.timestamp_seconds();
+                    let level = match rec.level() {
+                        Level::Error => "E".bold().red(),
+                        Level::Warn => "W".yellow().bold(),
+                        Level::Info => "*".blue().bold(),
+                        Level::Debug => "D".green().bold(),
+                        Level::Trace => "T".bright_yellow().bold(),
+                    };
+                    writeln!(buf, "[{}][{}] {}::{}\t{}", level, ts, "store4mqtt".italic(), rec.module_path_static().unwrap_or_else(|| "#"), rec.args())
+                });
+
+    builder.try_init().expect("Unable to setup logging");
+
 
     if !CONFIG.read().await.is_valid {
         error!("Reading configuration failed");

@@ -29,7 +29,7 @@ uuid = { version = "1.28.0", features = ["v4", "serde"], default-features = fals
 chrono = { version = "0.4.45", features = [ "serde", "clock" ], default-features = false  }
 tokio = { version = "1.53.2", features = [ "sync", "rt-multi-thread", "macros" ], default-features = false  }
 log = { version = "0.4.34", features = [ ], default-features = false }
-env_logger = { version = "0.11.11", features = [ ], default-features = false }
+env_logger = { version = "0.11.11", features = [ "humantime" ], default-features = false }
 futures-util = { version = "0.3.34", features = [ ], default-features = false }
 lazy_static = { version = "1.5.1", features = [ ], default-features = false }
 walkdir = { version = "2.5.0", features = [ ], default-features = false }
@@ -39,7 +39,7 @@ regex = { version= "1.12.2", features = [ ], default-features = false }
 thiserror = { version = "2.0.21", features = [ ], default-features = false, optional = true }
 
 # API dependencies
-actix-web = { version = "4.15.0", features = [ ], default-features = false, optional = true }
+actix-web = { version = "4.16.0", features = [ ], default-features = false, optional = true }
 actix-files = { version = "0.7.0", features = [ ], default-features = false, optional = true }
 actix-ws = { version = "0.4.0", features = [ ], default-features = false, optional = true }
 utoipa = { version = "6.0.0", features = [ ], default-features = false, optional = true }
@@ -65,6 +65,7 @@ base64 = { version = "0.23.1", features = [ "alloc" ], default-features = false,
 
 # We can not disable features otherwise it will not build, because sqlite3_sys requires "bundled"
 sqlite = { version = "0.37.4", optional = true }
+colored = { version = "3.1.1", default-features = false }
 
 [dev-dependencies]
 tempfile = "3.27.0"

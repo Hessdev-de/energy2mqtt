@@ -1,9 +1,10 @@
 
 
+use colored::Colorize;
 use energy2mqtt::{CONFIG, DeviceManager, init_discovered_devices, get_discovered_devices, mqtt::{MqttManager, internal_commands::CommandHandler, publish_uptime}};
 use tokio::task::JoinHandle;
-use std::{env, path::PathBuf, time::Duration};
-use log::info;
+use std::{path::PathBuf, time::Duration, io::Write};
+use log::{Level, info};
 
 #[cfg(feature = "api")]
 use energy2mqtt::ApiManager;
@@ -22,14 +23,26 @@ use energy2mqtt::KnxManager;
 #[cfg(feature = "modbus")]
 use energy2mqtt::ModbusManger;
 
-
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
     // Initialize logging
-    let default_filter =  std::env::var("E2M_LOG_LEVEL").unwrap_or("info".to_string());
-    env_logger::init_from_env(env_logger::Env::new().default_filter_or(default_filter));
 
-    env::set_var("RUST_BACKTRACE", "1");
+    let default_filter =  std::env::var("RUST_LOG").unwrap_or("info".to_string());
+    let mut builder = env_logger::Builder::from_env(env_logger::Env::new().default_filter_or(default_filter));
+
+    builder.format(|buf, rec| {
+                    let ts = buf.timestamp_seconds();
+                    let level = match rec.level() {
+                        Level::Error => "E".bold().red(),
+                        Level::Warn => "W".yellow().bold(),
+                        Level::Info => "*".blue().bold(),
+                        Level::Debug => "D".green().bold(),
+                        Level::Trace => "T".bright_yellow().bold(),
+                    };
+                    writeln!(buf, "[{}][{}] {}::{}\t{}", level, ts, "energy2mqtt".italic(), rec.module_path_static().unwrap_or_else(|| "#"), rec.args())
+                });
+
+    builder.try_init().expect("Unable to setup logging");
 
     // Initialize discovered devices store
     let discovered_devices_path = {
